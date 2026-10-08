@@ -1,0 +1,13 @@
+jupyterlab>=4,<5
+ipykernel>=6,<7
+ipywidgets>=8,<9
+pandas>=2,<3
+numpy>=1.26,<3
+ortools>=9.9,<10
+plotly>=5,<8
+gradio==4.44.1
+# Gradio 4's client cannot parse boolean schemas emitted by Pydantic 2.11+.
+pydantic==2.10.6
+# Gradio 4 imports HfFolder, which was removed in huggingface-hub 1.0.
+huggingface-hub>=0.19.3,<1.0
+openpyxl>=3.1,<4
