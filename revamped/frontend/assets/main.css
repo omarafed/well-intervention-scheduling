@@ -19,3 +19,27 @@
   .field-grid { @apply grid gap-4 sm:grid-cols-2 lg:grid-cols-3; }
   .eyebrow { @apply text-xs font-semibold uppercase tracking-widest text-teal-600; }
 }
+
+/* Keep controls readable while allowing plots and tables to shrink on mobile. */
+.workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+@media (min-width: 1024px) {
+  .workspace-grid { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); }
+  .workspace-grid aside .field-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.collapsible-panel > summary { list-style: none; }
+.collapsible-panel > summary::-webkit-details-marker { display: none; }
+.collapsible-panel > summary:focus-visible { outline: 2px solid #14b8a6; outline-offset: -3px; border-radius: 1rem; }
+.collapsible-panel .collapse-chevron { transform: rotate(-90deg); transition: transform 150ms ease; }
+.collapsible-panel[open] > summary .collapse-chevron { transform: rotate(0); }
+
+.workspace-header { position: sticky; top: 0; z-index: 30; }
+@media (min-width: 1024px) {
+  .workspace-controls {
+    position: sticky;
+    top: calc(var(--workspace-header-height, 136px) + 1.5rem);
+    max-height: calc(100vh - var(--workspace-header-height, 136px) - 3rem);
+    max-height: calc(100dvh - var(--workspace-header-height, 136px) - 3rem);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+}

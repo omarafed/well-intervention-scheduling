@@ -11,7 +11,7 @@ docker compose up --build -d
 docker compose logs -f api worker optimizer
 ```
 
-Open **http://localhost:3000** to use the shared workspace immediately. If it is empty, click **Load demo data** on Overview. Run an optimization and open its saved result in Scenarios. You can also add/edit wells and platforms, or import the files in `examples/` through their respective tabs. Imports merge by name, update matching records, and validate the entire file before committing.
+Open **http://localhost:3000** to use the shared workspace immediately. The app is a single page: data and scenario controls sit on the left, with optimization progress and results on the right. Below 1024px, these columns stack. Well and platform management are collapsed by default; open their panels to add or edit records. Charts, risk analysis, the schedule, and scenario history are also collapsible. If the workspace is empty, click **Load demo data**. Run an optimization to see its results directly, or open a saved run under **Scenario history & imports**. Upload the files in `examples/` through **Import datasets**. Imports merge by name, update matching records, and validate the entire file before committing.
 
 | Service | Local access |
 | --- | --- |
