@@ -101,6 +101,8 @@ For frontend development, run `npm run dev` in `frontend/` while the API is runn
 
 ## Hosting
 
+For GitHub Actions deployment to the same dedicated staging server as EDAFY, see [the staging deployment guide](deploy/README.md). Pushing a `stag-*` tag builds GHCR images and deploys the whole stack over SSH using this repository's `staging` environment. Defaults are frontend port `3010` and API port `8090`, with separate containers, networks, volumes, and `/opt/bayu-platform/staging` configuration.
+
 Deploy the Nuxt frontend to Cloudflare using its supported Nuxt build preset or generate static assets with `npm run generate`. Set the public API base at build time for a static deployment. Run the Go API, worker, and Python optimizer on a container host near PostgreSQL and Redis. MinIO can be replaced with an S3-compatible service such as R2 by configuring `S3_ENDPOINT`, `S3_SECURE`, credentials and bucket; integration must be verified for that service.
 
 Compose is a local development deployment with application ports bound to localhost. There is no application login: anyone who can reach the API can read and edit the shared workspace. Before public hosting, choose the intended network access boundary, replace service secrets, configure HTTPS and backups, and choose a production migration workflow. Startup currently uses GORM AutoMigrate. There is no claim of production hardening or a completed Cloudflare deployment.

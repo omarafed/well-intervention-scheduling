@@ -5,3 +5,6 @@ frontend/.output/
 .venv/
 __pycache__/
 .pytest_cache/
+
+.env.prod
+.env.release*
