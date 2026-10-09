@@ -1,0 +1,4 @@
+Platform_Name,Type,Supported_Job_Categories,Mob_Demob_Days,Daily_Cost_kUSD,Contract_End_Date
+Platform-1 (Light Unit),Light Unit,"Downhole Logging, Survey & Test, Wellhead Maintenance, Slickline Services",2,12,2027-09-10
+Platform-2 (Medium Unit),Medium Unit,"CTU Services, Sand Control & Monitoring, Perforation",4,30,2027-09-10
+Platform-3 (Heavy Unit),Heavy Unit,"Well Repair & Maintenance, Well Stimulation, Artificial Lift Enhancement",6,100,2027-09-10

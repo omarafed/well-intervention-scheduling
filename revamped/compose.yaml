@@ -1,0 +1,106 @@
+name: bayu-platform-scheduling
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://bayu:${POSTGRES_PASSWORD:-bayu-local-db}@postgres:5432/bayu?sslmode=disable
+  REDIS_ADDR: redis:6379
+  SERVICE_TOKEN: ${SERVICE_TOKEN:-local-development-internal-service-token}
+  S3_ENDPOINT: minio:9000
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-bayu}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-bayu-local-storage}
+  S3_BUCKET: imports
+  OPTIMIZER_URL: http://optimizer:8000
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bayu
+      POSTGRES_USER: bayu
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bayu-local-db}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U bayu -d bayu']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes', --maxmemory-policy, noeviction]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    build: ./minio
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-bayu}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-bayu-local-storage}
+    ports: ['127.0.0.1:9001:9001']
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://localhost:9000/minio/health/live]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  optimizer:
+    build: ./optimizer
+    environment:
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-local-development-internal-service-token}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    environment:
+      <<: *app-env
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    ports: ['127.0.0.1:8080:8080']
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://localhost:8080/health]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    command: [worker]
+    environment: *app-env
+    depends_on:
+      api: {condition: service_healthy}
+      optimizer: {condition: service_healthy}
+    stop_grace_period: 100s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:8080/api}
+      HOST: 0.0.0.0
+      PORT: 3000
+    ports: ['127.0.0.1:3000:3000']
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

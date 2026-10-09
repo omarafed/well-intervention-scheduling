@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply bg-slate-50 text-slate-800 antialiased; }
+  button, input, select, textarea { @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2; }
+  button:disabled { @apply opacity-50 cursor-wait; }
+  input:not([type=checkbox]), select, textarea { @apply w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm; }
+  label { @apply block text-xs font-semibold text-slate-500; }
+  label > input, label > select, label > textarea { @apply mt-1; }
+  th { @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500; }
+  td { @apply border-t border-slate-100 px-4 py-3 text-sm; }
+}
+@layer components {
+  .card { @apply rounded-2xl border border-slate-200 bg-white shadow-sm; }
+  .btn { @apply inline-flex items-center justify-center rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800; }
+  .secondary { @apply inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium transition hover:bg-slate-50; }
+  .field-grid { @apply grid gap-4 sm:grid-cols-2 lg:grid-cols-3; }
+  .eyebrow { @apply text-xs font-semibold uppercase tracking-widest text-teal-600; }
+}

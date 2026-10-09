@@ -1,0 +1,21 @@
+Well_ID,Job Category,Duration_Days,Gain_BOPD,Lat,Lon
+WELL-01,Wellhead Maintenance,17,1234,4.32,111.85
+WELL-02,Slickline Services,58,452,3.94,112.43
+WELL-03,Well Repair & Maintenance,31,1102,4.71,113.12
+WELL-04,Perforation,21,885,3.65,111.22
+WELL-05,CTU Services,28,1340,4.15,112.88
+WELL-06,Artificial Lift Enhancement,10,721,4.55,111.55
+WELL-07,"Downhole Logging, Survey & Test",6,312,3.82,113.01
+WELL-08,Well Stimulation,22,1450,4.01,111.75
+WELL-09,Sand Control & Monitoring,8,910,4.68,112.19
+WELL-10,Slickline Services,60,540,3.75,112.95
+WELL-11,Well Repair & Maintenance,34,1290,4.22,111.41
+WELL-12,CTU Services,26,670,4.45,113.3
+WELL-13,Wellhead Maintenance,14,1120,3.9,111.1
+WELL-14,Perforation,21,490,4.12,112.05
+WELL-15,Artificial Lift Enhancement,9,1380,3.68,112.6
+WELL-16,Well Stimulation,20,820,4.78,113.45
+WELL-17,"Downhole Logging, Survey & Test",7,245,4.25,111.9
+WELL-18,Sand Control & Monitoring,10,1050,3.88,112.35
+WELL-19,Slickline Services,59,980,4.5,111.6
+WELL-20,Well Repair & Maintenance,30,1150,4.05,113.15
