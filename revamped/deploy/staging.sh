@@ -13,6 +13,7 @@ APP_PORT=${APP_PORT:-3010}
 API_PORT=${API_PORT:-8090}
 BIND_ADDRESS=${BIND_ADDRESS:-0.0.0.0}
 DEPLOY_DIR=${DEPLOY_DIR:-/opt/bayu-platform/staging}
+COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-bayu-platform-staging}
 for port in "$APP_PORT" "$API_PORT"; do
   if [[ ! "$port" =~ ^[0-9]{1,5}$ ]] || ((10#$port < 1 || 10#$port > 65535)); then
     echo 'APP_PORT and API_PORT must be valid TCP ports' >&2
@@ -81,7 +82,7 @@ trap cleanup EXIT
   printf 'NUXT_PUBLIC_API_BASE=%s\n' "$PUBLIC_API_BASE"
 } > "$release_env"
 # Explicit project name keeps networks and volumes separate from EDAFY and local Compose.
-compose=(docker compose --project-name bayu-platform-staging --env-file .env.prod --env-file "$release_env" -f compose.staging.yaml)
+compose=(docker compose --project-name "$COMPOSE_PROJECT_NAME" --env-file .env.prod --env-file "$release_env" -f compose.staging.yaml)
 "${compose[@]}" config --quiet
 printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 "${compose[@]}" pull

@@ -1,22 +1,31 @@
-# Dedicated-server staging deployment
+# Dedicated-server deployment
 
 The repository-root `.github/workflows/build-images.yml` builds and deploys the
 `revamped/` application when a `stag-*` tag is pushed. A manual run from the
-Actions tab also deploys staging. It follows EDAFY's GHCR/SSH deployment pattern.
+Actions tab also deploys staging.
+`.github/workflows/deploy-development.yml` does the same for `dev-*` tags and
+manual development runs, using the `development` GitHub environment. It follows EDAFY's GHCR/SSH deployment pattern.
 It does not deploy the original notebook or publish the frontend to Cloudflare Pages.
 
 ## One-time GitHub setup
 
-In **this repository**, create **Settings → Environments → staging**. Copy the
-values of these environment secrets from `edafy-asset`'s **staging** environment:
+In **this repository**, create **Settings → Environments → staging** and
+**development**. Configure `DEPLOY_HOST` separately in each environment, using
+its server hostname or IP (without a URL scheme or path).
 
-| Secret | Purpose |
-| --- | --- |
-| `DEPLOY_HOST` | Same dedicated staging server hostname or IP |
-| `DEPLOY_USER` | Same SSH user, with Docker access and write access to `/opt/bayu-platform/staging` |
-| `DEPLOY_SSH_KEY` | Same private SSH key already authorized on that server |
-| `DEPLOY_PORT` | Optional SSH port; defaults to `22` |
-| `DEPLOY_HOST_FINGERPRINT` | Optional SSH host SHA256 fingerprint, used by both SSH and SCP |
+Under **Settings → Secrets and variables → Actions → Repository secrets**, add
+`DEPLOY_USER` and `DEPLOY_SSH_KEY` once. Both workflows use these shared SSH
+credentials. The same user and key must be authorized on both target servers.
+Leave these two secrets unset at environment level so they use the repository
+values; environment secrets with the same names take precedence.
+
+| Secret | Scope | Purpose |
+| --- | --- | --- |
+| `DEPLOY_HOST` | Each environment | That environment's dedicated server hostname or IP |
+| `DEPLOY_USER` | Repository | Shared SSH user with Docker access and write access to each deployment directory |
+| `DEPLOY_SSH_KEY` | Repository | Shared private SSH key authorized on both servers |
+| `DEPLOY_PORT` | Repository or environment | Optional SSH port; defaults to `22` |
+| `DEPLOY_HOST_FINGERPRINT` | Each environment | Optional SSH host SHA256 fingerprint, used by both SSH and SCP |
 
 Secrets in another repository's GitHub Environment are not inherited. Copy their
 values from your secret manager, or grant this repository access to equivalent
@@ -28,7 +37,8 @@ is required. Images published by this workflow must retain Actions access for
 this repository. The workflow builds Linux AMD64 images, matching the reference
 deployment; the server must support that architecture.
 
-Optional **staging environment variables**:
+Optional **environment variables**, configured separately in `staging` and
+`development`:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -46,7 +56,7 @@ permits the configured frontend origin; use that URL to access the application.
 
 ## Server layout
 
-The server already hosting EDAFY needs Docker Compose supporting multiple
+Each target server needs Docker Compose supporting multiple
 `--env-file` flags and `up --wait --wait-timeout`, plus Bash, OpenSSL, curl and
 `flock` (normally supplied by util-linux on Linux). No Docker installation or
 upgrade is performed by the workflow.
@@ -58,7 +68,12 @@ sudo mkdir -p /opt/bayu-platform/staging
 sudo chown "$USER" /opt/bayu-platform/staging
 ```
 
-Files live in `/opt/bayu-platform/staging`:
+For development, provision `/opt/bayu-platform/development` instead. Its workflow
+sets Compose project `bayu-platform-development`, isolating its network and volumes.
+Both environments use the same Compose file and deployment script. If deploying
+both to the same server, assign distinct `APP_PORT` and `API_PORT` values.
+
+Files live in `/opt/bayu-platform/staging` (or `/opt/bayu-platform/development`):
 
 - `compose.staging.yaml`: image-based server configuration.
 - `.env.prod`: generated database, internal-service and MinIO credentials, mode
@@ -83,14 +98,22 @@ git tag stag-2026.10.09-1
 git push origin stag-2026.10.09-1
 ```
 
-Open **Actions → Build & Deploy Platform Images**. The workflow:
+For development, use a `dev-*` tag instead:
 
-1. Validates the staging secrets and resolves a release tag including the commit
+```bash
+git tag dev-2026.10.27-1
+git push origin dev-2026.10.27-1
+```
+
+Open **Actions → Build & Deploy Platform Images** for staging or
+**Build & Deploy Development Images** for development. Each workflow:
+
+1. Validates its environment secrets and resolves a release tag including the commit
    SHA, run ID and attempt, so reruns do not overwrite another run's images.
 2. Runs Go tests/vet, optimizer tests, deployment-script tests and Compose validation.
 3. Builds and pushes backend, frontend, optimizer and MinIO images to GHCR.
    The worker runs the backend image with its `worker` command.
-4. Copies the staging configuration into a run-specific temporary directory and
+4. Copies the deployment configuration into a run-specific temporary directory and
    invokes the deployment script over SSH.
 5. Preserves service credentials, pulls all images before restarting anything,
    and waits for healthy containers and successful API/frontend HTTP responses.
@@ -102,7 +125,8 @@ its API can read and edit its data.
 
 ## Recovery and verification
 
-On the server:
+On the staging server (for development, substitute directory
+`/opt/bayu-platform/development` and project `bayu-platform-development`):
 
 ```bash
 cd /opt/bayu-platform/staging
@@ -115,7 +139,8 @@ images. Failed pulls leave running containers untouched. If a new release become
 unhealthy, the workflow fails and prints application logs; it does not claim to
 roll back partially updated containers. Fix the problem and rerun. To redeploy a
 known commit, run this workflow on its existing `stag-*` tag, or push a new
-`stag-*` tag pointing to that commit. Database schema compatibility must be
+`stag-*` tag pointing to that commit. For development, use its workflow and
+`dev-*` tags instead. Database schema compatibility must be
 considered when deploying older code because startup uses GORM AutoMigrate.
 Back up PostgreSQL, imported files and `.env.prod` separately.
 

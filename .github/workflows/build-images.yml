@@ -1,6 +1,6 @@
 name: Build & Deploy Platform Images
 
-# stag-* -> staging, using the same DEPLOY_* secrets as edafy-asset.
+# stag-* -> staging, using its environment DEPLOY_HOST and shared repository SSH secrets.
 on:
   push:
     tags: ['stag-*']
@@ -26,6 +26,7 @@ jobs:
         id: release
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          # Shared repository secrets for both deployment environments.
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         shell: bash
@@ -33,7 +34,11 @@ jobs:
           set -euo pipefail
           for key in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY; do
             if [ -z "${!key}" ]; then
-              echo "::error::$key must be configured in this repository's staging environment"
+              if [ "$key" = DEPLOY_HOST ]; then
+                echo "::error::DEPLOY_HOST must be configured in this repository's staging environment"
+              else
+                echo "::error::$key must be configured in this repository's Actions secrets"
+              fi
               exit 1
             fi
           done

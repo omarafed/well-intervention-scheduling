@@ -82,6 +82,19 @@ exit 0
         self.assertEqual((self.deploy / '.env.release').read_bytes(), saved)
         self.assertEqual(list(self.deploy.glob('.env.release.*')), [])
 
+    def test_development_uses_its_own_project_and_host(self):
+        result = self.run_deployment(
+            COMPOSE_PROJECT_NAME='bayu-platform-development',
+            DEPLOY_TAG='dev-test-123', TARGET_HOST='192.0.2.20')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.log.read_text()
+        self.assertIn('--project-name bayu-platform-development', commands)
+        self.assertNotIn('--project-name bayu-platform-staging', commands)
+        release = (self.deploy / '.env.release').read_text()
+        self.assertIn('TAG=dev-test-123', release)
+        self.assertIn('CORS_ORIGINS=http://192.0.2.20:3010', release)
+        self.assertIn('NUXT_PUBLIC_API_BASE=http://192.0.2.20:8090/api', release)
+
     def test_unhealthy_stack_is_reported_and_not_recorded_as_success(self):
         result = self.run_deployment(FAIL_HEALTH='1')
         self.assertNotEqual(result.returncode, 0)
