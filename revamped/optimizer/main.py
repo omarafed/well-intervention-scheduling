@@ -5,7 +5,7 @@ import secrets
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 import pandas as pd
-from engine import optimize, _validate_optimization_inputs, _as_nonnegative_int
+from engine import optimize, OptimizerBusy, _validate_optimization_inputs, _as_nonnegative_int
 from fastapi.responses import StreamingResponse
 from progress import stream_optimization
 
@@ -36,6 +36,8 @@ async def solve(request: Request):
         return json.loads(json.dumps(result, default=lambda x: x.item(), allow_nan=False))
     except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(422, str(exc)) from exc
+    except OptimizerBusy as exc:
+        raise HTTPException(503, str(exc), headers={'Retry-After': '5'}) from exc
 
 
 @app.post('/optimize/stream')

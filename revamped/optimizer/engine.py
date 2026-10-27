@@ -5,11 +5,25 @@ Contract end dates are advisory, as in the original model.
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import threading
+import os
+import time
 import numpy as np
 import pandas as pd
 from ortools.sat.python import cp_model
 
 COST_UNIT_SCALE = 1000
+_solve_slot = threading.BoundedSemaphore(1)
+
+
+class OptimizerBusy(RuntimeError):
+    pass
+
+
+def _positive_setting(name, default):
+    value = int(os.environ.get(name, default))
+    if value < 1:
+        raise ValueError(f"{name} must be a positive integer.")
+    return value
 
 def _as_nonnegative_int(value, field_name):
     numeric_value = float(value)
@@ -98,6 +112,16 @@ def haversine(lat1, lon1, lat2, lon2):
 
 
 def optimize(data, on_progress=None, stop_event=None):
+    # Hold the slot in the actual solving thread, including after a client disconnects.
+    if not _solve_slot.acquire(blocking=False):
+        raise OptimizerBusy("Optimizer is busy. Retry after the current job finishes.")
+    try:
+        return _optimize(data, on_progress, stop_event)
+    finally:
+        _solve_slot.release()
+
+
+def _optimize(data, on_progress=None, stop_event=None):
     on_progress = on_progress or (lambda update: None)
     time_limit = min(max(float(data.get("time_limit", 45)), .01), 45)
     on_progress({"phase": "building", "time_limit_seconds": time_limit, "solutions": 0})
@@ -113,6 +137,23 @@ def optimize(data, on_progress=None, stop_event=None):
     for _, row in df_candidates.iterrows():
         if row["Well_ID"] not in dropped_wells and not any(row["Job Category"] in p["Supported_Job_Categories"] for p in fleet_specs.values()):
             raise ValueError(f"No platform supports {row['Well_ID']}.")
+    active = df_candidates[~df_candidates['Well_ID'].isin(dropped_wells)]
+    route_pairs = 0
+    for platform in fleet_specs.values():
+        count = int(active['Job Category'].isin(platform['Supported_Job_Categories']).sum())
+        route_pairs += count * (count - 1)
+    max_pairs = _positive_setting('OPTIMIZER_MAX_ROUTE_PAIRS', 20000)
+    if route_pairs > max_pairs:
+        raise ValueError(
+            f"Optimization requires {route_pairs} route connections; this server allows {max_pairs}. "
+            "Reduce active wells or split the optimization into smaller batches."
+        )
+
+    def check_cancelled():
+        if stop_event is not None and stop_event.is_set():
+            raise ValueError("Optimization cancelled.")
+
+    check_cancelled()
     model = cp_model.CpModel()
     n_wells = len(df_candidates)
     horizon_days = 365
@@ -123,6 +164,7 @@ def optimize(data, on_progress=None, stop_event=None):
     platform_active_vars = {}
 
     for i in range(n_wells):
+        check_cancelled()
         performed[i] = model.NewBoolVar(f"performed_{i}")
         starts[i] = model.NewIntVar(0, horizon_days, f"start_{i}")
         ends[i] = model.NewIntVar(0, horizon_days, f"end_{i}")
@@ -171,8 +213,10 @@ def optimize(data, on_progress=None, stop_event=None):
     ]
     node_by_well = {well_index: node_index + 1 for node_index, well_index in enumerate(eligible_indices)}
     transit_distance_terms = []
+    distances = {}
 
     for r, platform_name in enumerate(platform_names):
+        check_cancelled()
         route_arcs = []
         active_on_platform = [platform_active_vars[(i, r)] for i in eligible_indices]
 
@@ -199,14 +243,18 @@ def optimize(data, on_progress=None, stop_event=None):
                 efficiency_data[i] = True
 
         for i in efficiency_data:
+            check_cancelled()
             for j in efficiency_data:
                 if i == j:
                     continue
 
-                distance_km = haversine(
-                    df_candidates.loc[i, "Lat"], df_candidates.loc[i, "Lon"],
-                    df_candidates.loc[j, "Lat"], df_candidates.loc[j, "Lon"],
-                )
+                pair = (min(i, j), max(i, j))
+                if pair not in distances:
+                    distances[pair] = haversine(
+                        df_candidates.loc[i, "Lat"], df_candidates.loc[i, "Lon"],
+                        df_candidates.loc[j, "Lat"], df_candidates.loc[j, "Lon"],
+                    )
+                distance_km = distances[pair]
                 transit_days = int(np.ceil(distance_km / 50.0)) + 1
                 route_arc = model.NewBoolVar(f"platform_{r}_well_{i}_to_well_{j}")
                 model.AddImplication(route_arc, platform_active_vars[(i, r)])
@@ -270,12 +318,17 @@ def optimize(data, on_progress=None, stop_event=None):
         def __init__(self):
             super().__init__()
             self.solutions = 0
+            self.last_preview = float('-inf')
 
         def on_solution_callback(self):
             if stop_event is not None and stop_event.is_set():
                 self.StopSearch()
                 return
             self.solutions += 1
+            now = time.monotonic()
+            if now - self.last_preview < 1:
+                return
+            self.last_preview = now
             on_progress({
                 "solutions": self.solutions,
                 "objective": self.ObjectiveValue(),
@@ -285,7 +338,7 @@ def optimize(data, on_progress=None, stop_event=None):
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit
-    solver.parameters.num_search_workers = 4
+    solver.parameters.num_search_workers = _positive_setting('OPTIMIZER_SEARCH_WORKERS', 1)
     solver.best_bound_callback = lambda bound: on_progress({"best_bound": bound})
     on_progress({"phase": "searching"})
     finished = threading.Event()
@@ -299,6 +352,7 @@ def optimize(data, on_progress=None, stop_event=None):
         watcher = threading.Thread(target=watch_disconnect, daemon=True)
         watcher.start()
     try:
+        check_cancelled()
         status = solver.Solve(model, SearchCallback())
     finally:
         finished.set()

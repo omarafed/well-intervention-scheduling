@@ -48,6 +48,10 @@ Optional **environment variables**, configured separately in `staging` and
 | `PUBLIC_APP_URL` | `http://<DEPLOY_HOST>:3010` | Exact browser origin, without a trailing slash; also configures CORS |
 | `PUBLIC_API_BASE` | `http://<DEPLOY_HOST>:8090/api` | Browser API URL, ending in `/api` |
 
+Both server workflows set `APP_BASE_PATH=/bayu/rig/`. Frontend links include
+that path; `PUBLIC_APP_URL` remains the origin only for CORS. Local Compose
+continues to default to `/`.
+
 Default URLs follow any overridden ports. For an HTTPS deployment, configure
 both public URLs with HTTPS, and route them to the corresponding local ports
 through your existing reverse proxy or Cloudflare Tunnel. With a tunnel, set
@@ -118,7 +122,7 @@ Open **Actions → Build & Deploy Platform Images** for staging or
 5. Preserves service credentials, pulls all images before restarting anything,
    and waits for healthy containers and successful API/frontend HTTP responses.
 
-Default addresses are `http://<server>:3010` and `http://<server>:8090/api`.
+Default addresses are `http://<server>:3010/bayu/rig/` and `http://<server>:8090/api`.
 Configured ports must be free and allowed by your network/firewall when accessed
 directly. The app remains a shared workspace without login; anyone who can reach
 its API can read and edit its data.
@@ -153,3 +157,112 @@ python3 -m unittest discover -s revamped/deploy -v
 
 A real GitHub-to-server run requires the configured environment secrets; local
 validation cannot verify those credentials or the dedicated server's port availability.
+
+## Shared staging server resource budget
+
+The server profile targets the shared 2-vCPU / 4-GiB host. Docker limits the
+whole Bayu stack to a combined 1.5 CPU cores and 2 GiB RAM, leaving at least
+0.5 CPU cores and 2 GiB outside these container budgets for the OS and other
+applications. These are ceilings, not reservations; existing applications may
+already need more than the remaining capacity. Development uses this same profile.
+Running both projects on one host doubles their combined budgets.
+
+| Service | CPU cores | RAM ceiling |
+| --- | ---: | ---: |
+| Optimizer | 0.50 | 768 MiB |
+| PostgreSQL | 0.20 | 256 MiB |
+| Redis | 0.10 | 128 MiB |
+| MinIO | 0.20 | 384 MiB |
+| API | 0.15 | 128 MiB |
+| Queue worker | 0.15 | 128 MiB |
+| Frontend | 0.20 | 256 MiB |
+
+The optimizer uses one Uvicorn process, one CP-SAT search worker, and one
+native math thread. A process-wide guard admits only one solve at a time,
+including the model build and final result calculation. Extra synchronous
+requests receive HTTP 503; streaming requests receive a retryable error. The
+queue worker already processes one job at a time. Keep a single optimizer
+replica: its guard is process-local. Disconnects signal cancellation during
+model building and search; the slot remains occupied until the solve exits.
+
+Models requiring more than 20,000 directed well-to-well connections across
+compatible platforms are rejected before model allocation. For example,
+100 active wells compatible with each of three platforms require 29,700
+connections, so that request must be split. Dropped and incompatible wells
+are excluded from this count. This is a conservative complexity guard, not
+a measured guarantee of peak memory. Distances are cached across platforms
+and previews are built at most once per second. The objective and routing
+constraints remain unchanged. One search worker and a half-core quota can
+find fewer improvements within the existing 45-second search limit.
+
+PostgreSQL uses 64 MiB shared buffers, 2 MiB work memory and 30 connections
+(the API and queue worker each allow 10). Redis rejects new writes at its
+64 MiB dataset limit rather than evicting queued jobs; monitor queue growth.
+Memory plus swap ceilings equal RAM ceilings, so these containers cannot
+consume host swap. Go services use one scheduler CPU and a 96 MiB soft Go
+memory target. Compose pulls and starts services serially to reduce deployment
+bursts; image extraction still uses host Docker resources outside container caps.
+
+After deploying a new image release, inspect actual usage while running a
+representative optimization:
+
+```bash
+cd /opt/bayu-platform/staging
+docker compose --project-name bayu-platform-staging \
+  --env-file .env.prod --env-file .env.release -f compose.staging.yaml ps -q | xargs docker stats --no-stream
+free -h
+uptime
+sudo journalctl -k --since '1 hour ago' | grep -Ei 'oom|out of memory|killed process'
+```
+
+An optimizer CPU reading around 50% in `docker stats` represents half of one
+core, or 25% of this two-core host. If a container restarts, inspect its
+`State.OOMKilled`, restart count and logs. A container exceeding its RAM cap
+can still be killed; the cap protects the shared host. No server logs were
+available during this change, so CPU oversubscription and unbounded model
+memory are identified risks, not a confirmed diagnosis of the reported crash.
+
+## Frontend reverse proxy at /bayu/rig/
+
+Dev and staging both serve the frontend at `/bayu/rig/`. Nuxt receives
+`NUXT_APP_BASE_URL=/bayu/rig/` in the frontend container at runtime; rebuilding
+assets for each hostname is unnecessary. Both workflows pass this setting to
+the deployment script, which saves it in `.env.release`. Container health checks
+and deployment HTTP probes use this same path.
+
+For development, set `PUBLIC_APP_URL=https://asset-dev.edafylabs.com` in the
+GitHub environment, without the path or trailing slash. Use the staging origin
+in the staging environment. Keep `PUBLIC_API_BASE` pointed at the actual backend
+API endpoint, ending in `/api`; the frontend base path does not relocate the Go
+backend routes.
+
+On each server, configure the existing proxy to send the entire `/bayu/rig/`
+prefix, including `/bayu/rig/_nuxt/`, to the Bayu frontend port (3010 by default).
+For Nginx inside the existing domain's `server` block:
+
+```nginx
+location = /bayu/rig {
+    return 308 /bayu/rig/;
+}
+
+location ^~ /bayu/rig/ {
+    # No trailing slash: preserve /bayu/rig/ in the upstream request.
+    proxy_pass http://127.0.0.1:3010;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+For a path-based tunnel route, use the equivalent path match and preserve the
+prefix. Requests for these frontend assets must reach the frontend, rather than
+the Go API or another Nuxt app. Avoid forwarding all domain-root `/_nuxt/`
+requests to Bayu, since another app may own that path.
+
+After redeploying and updating the proxy, open `/bayu/rig/` and check the Network
+tab: CSS and JavaScript URLs should start with `/bayu/rig/_nuxt/`, return 200,
+and have CSS/JavaScript content types. A JSON response to a stylesheet request
+usually means an error handler or the wrong upstream answered. Changing MIME
+headers would only disguise that failure. Purge any cached old HTML for this
+app path and hard-refresh if it still references domain-root `/_nuxt/` assets.

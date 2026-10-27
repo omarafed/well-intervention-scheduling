@@ -44,6 +44,7 @@ exit 0
             'DEPLOY_DIR': str(self.deploy), 'COMMAND_LOG': str(self.log),
             'APP_PORT': '3010', 'API_PORT': '8090', 'BIND_ADDRESS': '0.0.0.0',
             'PUBLIC_APP_URL': '', 'PUBLIC_API_BASE': '',
+            'APP_BASE_PATH': '/',
         }
 
     def run_deployment(self, **overrides):
@@ -66,6 +67,7 @@ exit 0
         self.assertIn('NUXT_PUBLIC_API_BASE=https://platform-api.example.com/api', release)
         commands = self.log.read_text()
         self.assertIn('--project-name bayu-platform-staging', commands)
+        self.assertIn('compose --parallel 1 --project-name', commands)
         self.assertIn('--wait --wait-timeout 240', commands)
         self.assertNotIn(' down', commands)
         self.assertNotIn('prune', commands)
@@ -102,12 +104,29 @@ exit 0
         self.assertIn('logs --tail=80', self.log.read_text())
         self.assertFalse((self.deploy / '.env.release').exists())
 
+    def test_subpath_is_saved_and_used_for_frontend_probe(self):
+        result = self.run_deployment(APP_BASE_PATH='/bayu/rig/',
+                                     PUBLIC_APP_URL='https://asset-dev.edafylabs.com')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        release = (self.deploy / '.env.release').read_text()
+        self.assertIn('APP_BASE_PATH=/bayu/rig/', release)
+        self.assertIn('CORS_ORIGINS=https://asset-dev.edafylabs.com\n', release)
+        self.assertIn('http://127.0.0.1:3010/bayu/rig/', self.log.read_text())
+        self.assertIn('Frontend: https://asset-dev.edafylabs.com/bayu/rig/', result.stdout)
+
     def test_invalid_settings_fail_before_docker_changes(self):
         for overrides in [{'APP_PORT': '8085\nTAG=other'}, {'PUBLIC_APP_URL': 'https://example.com/'},
                           {'PUBLIC_API_BASE': 'https://example.com/$TOKEN/api'},
                           {'DEPLOY_TAG': 'stag test'}, {'API_PORT': '3010'}]:
             with self.subTest(overrides=overrides):
                 result = self.run_deployment(**overrides)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(self.log.exists())
+
+    def test_invalid_base_paths_fail_before_docker_changes(self):
+        for path in ['rig/', '/rig', '//rig/', '/rig/../', '/rig/$TOKEN/', '/rig/?x=1']:
+            with self.subTest(path=path):
+                result = self.run_deployment(APP_BASE_PATH=path)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(self.log.exists())
 

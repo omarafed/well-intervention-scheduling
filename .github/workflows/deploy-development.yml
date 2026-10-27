@@ -163,6 +163,7 @@ jobs:
           COMPOSE_PROJECT_NAME: bayu-platform-development
           TARGET_HOST: ${{ secrets.DEPLOY_HOST }}
           RELEASE_FILES: /tmp/bayu-platform-${{ github.run_id }}-${{ github.run_attempt }}
+          APP_BASE_PATH: /bayu/rig/
           PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
           PUBLIC_API_BASE: ${{ vars.PUBLIC_API_BASE }}
           APP_PORT: ${{ vars.APP_PORT || '3010' }}
@@ -174,7 +175,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || '22' }}
           fingerprint: ${{ secrets.DEPLOY_HOST_FINGERPRINT }}
-          envs: GHCR_TOKEN,GHCR_USER,IMAGE_PREFIX,DEPLOY_TAG,DEPLOY_DIR,COMPOSE_PROJECT_NAME,TARGET_HOST,RELEASE_FILES,PUBLIC_APP_URL,PUBLIC_API_BASE,APP_PORT,API_PORT,BIND_ADDRESS
+          envs: GHCR_TOKEN,GHCR_USER,IMAGE_PREFIX,DEPLOY_TAG,DEPLOY_DIR,COMPOSE_PROJECT_NAME,TARGET_HOST,RELEASE_FILES,APP_BASE_PATH,PUBLIC_APP_URL,PUBLIC_API_BASE,APP_PORT,API_PORT,BIND_ADDRESS
           command_timeout: 20m
           script: |
             bash "$RELEASE_FILES/revamped/deploy/staging.sh"

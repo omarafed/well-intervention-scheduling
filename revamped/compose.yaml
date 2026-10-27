@@ -92,6 +92,7 @@ services:
   frontend:
     build: ./frontend
     environment:
+      NUXT_APP_BASE_URL: ${APP_BASE_PATH:-/}
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:8080/api}
       HOST: 0.0.0.0
       PORT: 3000
