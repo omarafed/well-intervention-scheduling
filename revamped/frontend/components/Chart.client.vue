@@ -21,4 +21,4 @@ onMounted(async () => {
 watch(() => [props.data, props.layout], draw, { deep: true })
 onBeforeUnmount(() => { disposed = true; window.removeEventListener('resize', resize); if (plotly && el.value) plotly.purge(el.value) })
 </script>
-<template><div ref="el" class="w-full min-h-80" /></template>
+<template><div ref="el" class="w-full min-w-0 min-h-80 overflow-hidden" /></template>

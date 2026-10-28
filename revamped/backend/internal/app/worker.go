@@ -87,7 +87,7 @@ func (a *App) processJob(ctx context.Context, task *asynq.Task) (resultErr error
 			if e := json.Unmarshal(result, &rows); e != nil {
 				return e
 			}
-			result = []byte(encode(map[string]any{"imported": len(rows), "kind": kind}))
+			result = []byte(encode(map[string]any{"imported": len(rows), "kind": kind, "rows": rows}))
 		}
 	} else {
 		return fmt.Errorf("unknown job type: %w", asynq.SkipRetry)

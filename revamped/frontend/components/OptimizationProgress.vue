@@ -12,11 +12,6 @@ const title = computed(() => {
   return { building: 'Preparing the scheduling model', searching: 'Searching for better schedules', finalizing: 'Calculating risk analysis' }[props.progress.phase] || 'Starting optimization'
 })
 const format = value => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })
-const history = computed(() => props.progress.history || [])
-const convergence = computed(() => [
-  { type: 'scatter', mode: 'lines+markers', name: 'Best schedule score', x: history.value.map(p => p.elapsed_seconds), y: history.value.map(p => p.objective), line: { color: '#0f766e', shape: 'hv' }, marker: { size: 5 } },
-  { type: 'scatter', mode: 'lines', name: 'Solver upper bound', x: history.value.map(p => p.elapsed_seconds), y: history.value.map(p => p.best_bound), line: { color: '#d97706', dash: 'dash', shape: 'hv' } },
-])
 </script>
 
 <template>
@@ -29,15 +24,5 @@ const convergence = computed(() => [
       <div class="h-full rounded-full bg-teal-600 transition-all duration-700" :class="queued ? 'w-1/5 animate-pulse' : ''" :style="queued ? {} : {width: percent + '%'}" />
     </div>
     <p class="text-xs text-slate-500">{{ completed ? 'Final schedule and risk results are ready.' : queued ? 'Your search starts when a worker is available.' : `Updates every 5 seconds · Search budget: ${limit}s. This bar measures time used; the solver may finish early.` }}</p>
-    <div v-if="!queued && progress.solutions" class="grid sm:grid-cols-3 gap-4">
-      <div><p class="text-xs text-slate-500">Improving solutions found</p><p class="font-semibold mt-1">{{ progress.solutions }}</p></div>
-      <div><p class="text-xs text-slate-500">Best schedule score ↑</p><p class="font-semibold mt-1">{{ format(progress.objective) }}</p></div>
-      <div><p class="text-xs text-slate-500">Gap to solver upper bound</p><p class="font-semibold mt-1">{{ progress.gap_percent == null ? '—' : format(progress.gap_percent) + '%' }}</p></div>
-    </div>
-    <p v-if="!queued && !progress.solutions && !completed" class="text-sm text-slate-500">No feasible schedule found yet. The timeline and routes will appear when the solver finds its first solution.</p>
-    <template v-if="history.length">
-      <p class="text-xs text-slate-500">A higher schedule score means a better balance of earlier production and shorter transit. The gap narrows as the solver improves the schedule or its upper bound.</p>
-      <ClientOnly><Chart :data="convergence" :layout="{height:250, margin:{t:15,r:20,b:60,l:90}, xaxis:{title:{text:'Elapsed time (seconds)'}}, yaxis:{title:{text:'Search score'}}, legend:{orientation:'h',y:-0.3}}" /></ClientOnly>
-    </template>
   </section>
 </template>

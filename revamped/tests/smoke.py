@@ -78,7 +78,10 @@ def main():
             assert row['Start_Day'] >= previous_end
             previous_end = row['End_Day']
         assert len(result['monte_carlo']['gain_bopd']) == 10000
-        assert wait(upload('wells', (f'Well_ID,Job Category,Duration_Days,Gain_BOPD,Lat,Lon\n{wells[0]["name"]},{category},8,550,4.1,112.2\n').encode()))['imported'] == 1
+        imported = wait(upload('wells', (f'Well_ID,Job Category,Duration_Days,Gain_BOPD,Lat,Lon\n{wells[0]["name"]},{category},8,550,4.1,112.2\n').encode()))
+        assert imported['imported'] == 1
+        assert imported['rows'][0]['name'] == wells[0]['name']
+        assert imported['rows'][0]['duration_days'] == 8
         assert wait(upload('platforms', (f'Platform_Name,Supported_Job_Categories,Mob_Demob_Days,Daily_Cost_kUSD\n{platform["name"]},{category},3,15\n').encode()))['imported'] == 1
         before = request('/wells')
         bad = upload('wells', (f'Well_ID,Job Category,Duration_Days,Gain_BOPD,Lat,Lon\n{wells[0]["name"]},{category},20,400,4,112\nBAD,{category},5,400,91,112\n').encode())
