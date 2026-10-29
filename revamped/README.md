@@ -1,6 +1,6 @@
-# Bayu Platform Scheduling
+# Bayu Rig Scheduling
 
-A separate application built from the scheduling model in `../Trial.ipynb`. The original notebook remains usable. All new interfaces, models, imports, and schedule exports use **platform** terminology.
+A separate application built from the scheduling model in `../Trial.ipynb`. The original notebook remains usable. Internal API routes and storage keys retain their existing platform identifiers for compatibility. User-facing interfaces, import templates, and schedule exports use **Rig** terminology.
 
 ## Run locally
 
@@ -11,7 +11,7 @@ docker compose up --build -d
 docker compose logs -f api worker optimizer
 ```
 
-Open **http://localhost:3000** to use the shared workspace immediately. The app is a single page: data and scenario controls sit on the left, with optimization progress and results on the right. Below 1024px, these columns stack. Well and platform management are collapsed by default; open their panels to add or edit records. Charts, risk analysis, the schedule, and scenario history are also collapsible. If the workspace is empty, click **Load demo data**. Run an optimization to see its results directly, or open a saved run under **Scenario history & imports**. Upload the files in `examples/` through **Import datasets**. Imports merge by name, update matching records, and validate the entire file before committing.
+Open **http://localhost:3000** to use the shared workspace immediately. The app is a single page: data and scenario controls sit on the left, with optimization progress and results on the right. Below 1024px, these columns stack. Well and rig management are collapsed by default; open their panels to add or edit records. Charts, risk analysis, the schedule, and scenario history are also collapsible. If the workspace is empty, click **Load demo data**. Run an optimization to see its results directly, or open a saved run under **Scenario history & imports**. Upload the files in `examples/` through **Import datasets**. Imports merge by name, update matching records, and validate the entire file before committing.
 
 | Service | Local access |
 | --- | --- |
@@ -38,7 +38,7 @@ Echo API / GORM ───────── PostgreSQL
           └── Redis/Asynq → Go worker → Python/FastAPI/OR-Tools
 ```
 
-The API serves one shared workspace without registration, login, or browser tokens. Everyone using this instance sees and edits the same wells, platforms, and scenarios. Optimization jobs store immutable input snapshots, so editing the dataset does not change an existing scenario. A Go Asynq worker calls the internal Python service, then persists the schedule and 10,000 Monte Carlo samples. Imports are staged in MinIO, parsed in Python (CSV/XLSX), validated, and upserted in a PostgreSQL transaction. The optimizer streams snapshots to the Go worker every five seconds, which saves progress and the best feasible schedule in PostgreSQL. The frontend polls every five seconds and refreshes the provisional timeline, routes, and totals when better solutions arrive. Both charts display a live snapshot timestamp and refresh independently of other page requests, including while the current best solution remains unchanged. A compact progress bar shows the search time budget used; detailed solver output is hidden. Monte Carlo charts and exports appear once the search completes, above the intervention timeline, with labeled dashed P10/P50/P90 lines.
+The API serves one shared workspace without registration, login, or browser tokens. Everyone using this instance sees and edits the same wells, rigs, and scenarios. Optimization jobs store immutable input snapshots, so editing the dataset does not change an existing scenario. A Go Asynq worker calls the internal Python service, then persists the schedule and 10,000 Monte Carlo samples. Imports are staged in MinIO, parsed in Python (CSV/XLSX), validated, and upserted in a PostgreSQL transaction. The optimizer streams snapshots to the Go worker every five seconds, which saves progress and the best feasible schedule in PostgreSQL. The frontend polls every five seconds and refreshes the provisional timeline, routes, and totals when better solutions arrive. Both charts display a live snapshot timestamp and refresh independently of other page requests, including while the current best solution remains unchanged. A compact progress bar shows the search time budget used; detailed solver output is hidden. Monte Carlo charts and exports appear once the search completes, above the intervention timeline, with labeled dashed P10/P50/P90 lines.
 
 Redis durably queues jobs using AOF. Completed job responses are cached briefly in Redis; PostgreSQL remains the source of truth. Workers run one job at a time to avoid oversubscribing the solver's four search threads. Transient failures retry twice; invalid input fails without retrying. Worker operations are idempotent on replay, and import transactions prevent partial datasets.
 
@@ -53,11 +53,13 @@ Redis durably queues jobs using AOF. Completed job responses are cached briefly 
 - Daily cost is kUSD; mobilization days are included in each intervention's cost. Transit days are not charged, matching the notebook.
 - Contract end dates are **advisory**, with result warnings; they are not hard scheduling constraints.
 - Risk uses triangular duration factors 0.8 / 1.0 / 1.5 and gain factors 0.7 / 1.0 / 1.2. Gain P90 is the lower percentile; cost P90 is the upper percentile. Simulation is vectorized with a fixed seed, so exact random samples differ from the notebook while retaining its distributions.
-- Limits: 200 wells / 20 platforms per optimization; 1,000 rows / 10 MiB per import. Larger workloads need profiling and resource limits.
+- Limits: 200 wells / 20 rigs per optimization; 1,000 rows / 10 MiB per import. Larger workloads need profiling and resource limits.
 
-The application supports dataset editing, excluded wells and saved scenario history. On completed scenarios, drag a well onto the left or right half of another well on the same platform to reorder it; keyboard users can focus a well and press the left/right arrow keys. Dates and transit are recalculated using the same duration, mobilization and transit rules as the optimizer. Moves beyond the 365-day horizon are rejected, and contract overruns remain advisory warnings. Manual drafts are saved per scenario in this browser and included in schedule exports; Reset restores the original result. Platform assignments, gain, cost and risk distributions stay unchanged. Hovering or focusing a well shows its category, dates, gain, cost and contract end. Locked interventions, collaborative approval flows, and scenario comparison overlays are not implemented. The notebook accepted locked-well inputs but did not apply them in its optimization model, so the new app does not expose an ineffective lock control.
+The application supports dataset editing, excluded wells and saved scenario history. On completed scenarios, drag a well onto the left or right half of another well on the same rig to reorder it; keyboard users can focus a well and press the left/right arrow keys. Dates and transit are recalculated using the same duration, mobilization and transit rules as the optimizer. Moves beyond the 365-day horizon are rejected, and contract overruns remain advisory warnings. Manual drafts are saved per scenario in this browser and included in schedule exports; Reset restores the original result. Rig assignments, gain, cost and risk distributions stay unchanged. Job categories keep the same colors after reordering or restoring drafts; timeline well names and BOPD values are bold. Hovering or focusing a well shows its category, dates, gain, cost and contract end. Locked interventions, collaborative approval flows, and scenario comparison overlays are not implemented. The notebook accepted locked-well inputs but did not apply them in its optimization model, so the new app does not expose an ineffective lock control.
 
-Selecting **View** in history loads the selected result, opens its result panels, and moves focus to it. New imports save a snapshot of parsed rows for viewing; older imports retain their counts only. Saved scenario inputs remain stored but are hidden from the interface. Job categories use a native dropdown that includes imported/custom platform categories, and successful well or platform saves show a dismissible notification.
+Selecting **Edit rig** loads the selected rig into the form, scrolls to it, and focuses its name. **Save changes** updates that rig; **Cancel edit** resets the form.
+
+Selecting **View** in history loads the selected result, opens its result panels, and moves focus to it. New imports save a snapshot of parsed rows for viewing; older imports retain their counts only. Saved scenario inputs remain stored but are hidden from the interface. Job categories use a native dropdown that includes imported/custom rig categories, and successful well or rig saves show a dismissible notification.
 
 ## API
 
@@ -73,7 +75,7 @@ All application API routes are accessible directly without an Authorization head
 | GET | `/api/jobs/:id` | Job, saved inputs, progress, and provisional or final result |
 | POST | `/api/demo` | Populate an empty workspace with sample data |
 
-Platform import columns: `Platform_Name,Type,Supported_Job_Categories,Mob_Demob_Days,Daily_Cost_kUSD,Contract_End_Date`. The legacy `Rig_Name` header is also accepted when `Platform_Name` is absent, including the original `../example_rig.csv`; imported names are preserved as supplied. Use semicolons between categories, especially custom categories containing commas. Well import columns: `Well_ID,Job Category,Duration_Days,Gain_BOPD,Lat,Lon` (`BOPD` is also accepted). Templates are downloadable in the UI.
+Rig import columns: `Rig_Name,Type,Supported_Job_Categories,Mob_Demob_Days,Daily_Cost_kUSD,Contract_End_Date`. The legacy `Platform_Name` header is also accepted alongside `Rig_Name`, including the original `../example_rig.csv`; imported names are preserved as supplied. Use semicolons between categories, especially custom categories containing commas. Well import columns: `Well_ID,Job Category,Duration_Days,Gain_BOPD,Lat,Lon` (`BOPD` is also accepted). Templates are downloadable in the UI.
 
 ## Development and verification
 
@@ -98,7 +100,7 @@ After Compose is running, run the end-to-end smoke test from this folder:
 python3 tests/smoke.py
 ```
 
-It verifies direct access without credentials, creates uniquely named test wells and a platform, runs optimization, validates saved snapshots and risk results, and exercises staged CSV imports. It removes its test records afterward while preserving existing datasets. Saved test jobs remain visible in history.
+It verifies direct access without credentials, creates uniquely named test wells and a rig, runs optimization, validates saved snapshots and risk results, and exercises staged CSV imports. It removes its test records afterward while preserving existing datasets. Saved test jobs remain visible in history.
 
 For frontend development, run `npm run dev` in `frontend/` while the API is running. The frontend's public API base is configured with `NUXT_PUBLIC_API_BASE`.
 

@@ -32,7 +32,7 @@ class EngineTests(unittest.TestCase):
         data = fixture(); data['dropped_wells'] = ['W2']
         self.assertEqual([r['Well_ID'] for r in optimize(data)['schedule']], ['W1'])
         data = fixture(); data['wells'][0]['Job Category'] = 'Unsupported'
-        with self.assertRaisesRegex(ValueError, 'No platform supports'):
+        with self.assertRaisesRegex(ValueError, 'No rig supports'):
             optimize(data)
 
     def test_invalid_and_infeasible_inputs(self):

@@ -56,7 +56,7 @@ def _validate_optimization_inputs(df_candidates, fleet_specs):
     if missing_columns:
         raise ValueError(f"Dataset is missing required column(s): {', '.join(sorted(missing_columns))}.")
     if not fleet_specs:
-        raise ValueError("Add or upload at least one platform before optimizing.")
+        raise ValueError("Add or upload at least one rig before optimizing.")
 
     candidates = df_candidates.copy().reset_index(drop=True)
     if candidates["Well_ID"].isna().any() or candidates["Well_ID"].astype(str).str.strip().eq("").any():
@@ -136,7 +136,7 @@ def _optimize(data, on_progress=None, stop_event=None):
         raise ValueError("At least one well must remain active.")
     for _, row in df_candidates.iterrows():
         if row["Well_ID"] not in dropped_wells and not any(row["Job Category"] in p["Supported_Job_Categories"] for p in fleet_specs.values()):
-            raise ValueError(f"No platform supports {row['Well_ID']}.")
+            raise ValueError(f"No rig supports {row['Well_ID']}.")
     active = df_candidates[~df_candidates['Well_ID'].isin(dropped_wells)]
     route_pairs = 0
     for platform in fleet_specs.values():

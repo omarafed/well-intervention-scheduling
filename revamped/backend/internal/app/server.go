@@ -117,7 +117,7 @@ func (a *App) saveWell(c echo.Context) error {
 func (a *App) savePlatform(c echo.Context) error {
 	var row Platform
 	if c.Bind(&row) != nil {
-		return echo.NewHTTPError(400, "Invalid platform")
+		return echo.NewHTTPError(400, "Invalid rig")
 	}
 	row.ID = 0
 	row.UserID = sharedWorkspaceID
@@ -172,7 +172,7 @@ func (a *App) deletePlatform(c echo.Context) error {
 func (a *App) importFile(c echo.Context) error {
 	kind := c.Param("kind")
 	if kind != "wells" && kind != "platforms" {
-		return echo.NewHTTPError(400, "Choose wells or platforms")
+		return echo.NewHTTPError(400, "Choose wells or rigs")
 	}
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -225,7 +225,7 @@ func (a *App) optimize(c echo.Context) error {
 		return err
 	}
 	if len(wells) == 0 || len(wells) > 200 || len(platforms) == 0 || len(platforms) > 20 {
-		return echo.NewHTTPError(422, "Optimization requires 1–200 wells and 1–20 platforms")
+		return echo.NewHTTPError(422, "Optimization requires 1–200 wells and 1–20 rigs")
 	}
 	ws := []map[string]any{}
 	ps := map[string]any{}
@@ -303,7 +303,7 @@ func (a *App) seedDemo(c echo.Context) error {
 			return err
 		}
 		if count > 0 {
-			return echo.NewHTTPError(409, "Demo requires an empty platform dataset")
+			return echo.NewHTTPError(409, "Demo requires an empty rig dataset")
 		}
 		for i, cat := range []string{"Wellhead Maintenance", "Slickline Services", "Perforation", "Well Stimulation", "CTU Services", "Well Repair & Maintenance"} {
 			w := Well{UserID: sharedWorkspaceID, Name: fmt.Sprintf("WELL-%02d", i+1), Category: cat, DurationDays: 7 + i*2, GainBOPD: 400 + i*180, Lat: 4 + float64(i)*.08, Lon: 111.8 + float64(i)*.12}
@@ -312,7 +312,7 @@ func (a *App) seedDemo(c echo.Context) error {
 			}
 		}
 		for i, cats := range [][]string{{"Wellhead Maintenance", "Slickline Services", "Perforation"}, {"Well Stimulation", "CTU Services", "Well Repair & Maintenance"}} {
-			p := Platform{UserID: sharedWorkspaceID, Name: fmt.Sprintf("Platform-%d", i+1), Type: "Intervention", Categories: cats, MobDemobDays: 2, DailyCostKUSD: 12 + float64(i)*18}
+			p := Platform{UserID: sharedWorkspaceID, Name: fmt.Sprintf("Rig-%d", i+1), Type: "Intervention", Categories: cats, MobDemobDays: 2, DailyCostKUSD: 12 + float64(i)*18}
 			if err := tx.Create(&p).Error; err != nil {
 				return err
 			}

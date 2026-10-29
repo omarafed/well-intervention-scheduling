@@ -57,12 +57,12 @@ func (w *Well) Validate() error {
 func (p *Platform) Validate() error {
 	p.Name = strings.TrimSpace(p.Name)
 	if p.Name == "" || len(p.Name) > 100 || len(p.Categories) == 0 || len(p.Categories) > 30 || p.MobDemobDays < 0 || p.MobDemobDays > 365 || !finite(p.DailyCostKUSD) || p.DailyCostKUSD < .001 || p.DailyCostKUSD > 1000000 {
-		return errors.New("invalid platform: supply a name, categories, mobilization days 0–365, and daily cost 0.001–1000000 kUSD")
+		return errors.New("invalid rig: supply a name, categories, mobilization days 0–365, and daily cost 0.001–1000000 kUSD")
 	}
 	for i, category := range p.Categories {
 		p.Categories[i] = strings.TrimSpace(category)
 		if p.Categories[i] == "" || len(p.Categories[i]) > 200 {
-			return errors.New("invalid platform category")
+			return errors.New("invalid rig category")
 		}
 	}
 	if p.ContractEndDate != "" {

@@ -79,14 +79,14 @@ def parse_file(kind, filename, body):
         return [{'name': str(r['Well_ID']).strip(), 'category': str(r['Job Category']).strip(),
                  'duration_days': int(r['Duration_Days']), 'gain_bopd': int(r['BOPD']),
                  'lat': float(r['Lat']), 'lon': float(r['Lon'])} for r in validated.to_dict('records')]
-    # Accept exports from the original notebook while keeping the new template canonical.
+    # Accept legacy platform headers alongside rig templates.
     if 'Platform_Name' not in df.columns and 'Rig_Name' in df.columns:
         df = df.rename(columns={'Rig_Name': 'Platform_Name'})
     required = ['Platform_Name', 'Supported_Job_Categories', 'Mob_Demob_Days', 'Daily_Cost_kUSD']
     if any(c not in df.columns for c in required):
-        raise ValueError('Required columns: ' + ', '.join(required))
+        raise ValueError('Required columns: ' + ', '.join('Rig_Name' if column == 'Platform_Name' else column for column in required))
     if df['Platform_Name'].isna().any() or df['Platform_Name'].duplicated().any():
-        raise ValueError('Platform names must be non-empty and unique.')
+        raise ValueError('Rig names must be non-empty and unique.')
     from datetime import datetime
     rows = []
     categories = ["Downhole Logging, Survey & Test", "Wellhead Maintenance", "Slickline Services", "CTU Services", "Sand Control & Monitoring", "Perforation", "Well Repair & Maintenance", "Well Stimulation", "Artificial Lift Enhancement"]

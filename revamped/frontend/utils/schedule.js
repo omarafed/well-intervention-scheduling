@@ -9,7 +9,7 @@ export function distance(a, b) {
 export function reorderSchedule(schedule, source, target, startDate, after = false) {
   const from = schedule.find(r => r.Well_ID === source)
   const to = schedule.find(r => r.Well_ID === target)
-  if (!from || !to || from.Platform_Assigned !== to.Platform_Assigned) throw new Error('Move wells within the same platform.')
+  if (!from || !to || from.Platform_Assigned !== to.Platform_Assigned) throw new Error('Move wells within the same rig.')
   if (source === target) return schedule
   const rows = schedule.filter(r => r.Platform_Assigned === from.Platform_Assigned).sort((a, b) => a.Start_Day - b.Start_Day).map(r => ({ ...r }))
   const moving = rows.splice(rows.findIndex(r => r.Well_ID === source), 1)[0]

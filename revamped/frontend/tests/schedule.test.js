@@ -27,7 +27,7 @@ test('drop after a target and restore saved order produce identical schedules', 
 })
 
 test('invalid moves and stale drafts are rejected without mutating the source', () => {
-  assert.throws(() => reorderSchedule(original, 'A', 'D', '2026-10-28'), /same platform/)
+  assert.throws(() => reorderSchedule(original, 'A', 'D', '2026-10-28'), /same rig/)
   assert.throws(() => restoreOrder(original, ['A', 'B'], '2026-10-28'), /does not match/)
   const long = original.map(r => ({ ...r, Duration_Days: 180 }))
   const saved = JSON.stringify(long)
