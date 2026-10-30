@@ -13,7 +13,7 @@ const selected = ref(null)
 const resultsPanel = ref(null)
 const manualSchedule = ref(null)
 const viewingJob = ref(null)
-const scenario = reactive({ name: 'Intervention plan', start_date: new Date().toLocaleDateString('en-CA'), dropped_wells: [] })
+const scenario = reactive({ name: 'Intervention plan', start_date: new Date().toLocaleDateString('en-CA'), dropped_wells: [], locked_wells: [] })
 const well = reactive({ name: '', category: 'Wellhead Maintenance', duration_days: 7, gain_bopd: 500, lat: 4.1, lon: 112.2 })
 const platform = reactive({ name: '', type: 'Intervention', categories: [], mob_demob_days: 2, daily_cost_kusd: 12, contract_end_date: '' })
 const rigForm = ref(null)
@@ -61,7 +61,34 @@ function riskLayout(kind) {
     annotations: Object.entries(values).sort((a, b) => a[1] - b[1]).map(([key, value], i) => ({ x: value, y: 1, xref: 'x', yref: 'paper', text: `${key.toUpperCase()}: ${num(value, 1)}`, showarrow: false, yshift: 12 + (i % 2) * 20, font: { color: colors[key], size: 11 } })),
   }
 }
-const activeJobs = computed(() => jobs.value.filter(j => ['queued', 'running', 'retrying'].includes(j.status)))
+const activeJobCount = ref(0)
+const history = reactive({ page: 1, page_size: 10, search: '', kind: '', status: '' })
+const historySearch = ref('')
+const historyTotal = ref(0)
+const historyPages = ref(1)
+const historyLoading = ref(false)
+let historyVersion = 0
+async function loadHistory() {
+  const version = ++historyVersion
+  historyLoading.value = true
+  try {
+    const data = await api('/jobs', { query: { ...history } })
+    if (version !== historyVersion) return
+    jobs.value = data.items; historyTotal.value = data.total; historyPages.value = data.pages
+    history.page = data.page; activeJobCount.value = data.active
+  } finally { if (version === historyVersion) historyLoading.value = false }
+}
+async function changeHistory(page = 1) {
+  history.page = page; history.search = historySearch.value.trim()
+  try { await loadHistory() } catch (e) { error.value = e.message }
+}
+const lockCandidates = computed(() => selected.value?.job.kind === 'optimization' && selected.value.job.status === 'completed'
+  ? schedule.value.filter(row => wells.value.some(w => w.name === row.Well_ID) && !scenario.dropped_wells.includes(row.Well_ID)) : [])
+function toggleLock(row, checked) {
+  scenario.locked_wells = scenario.locked_wells.filter(lock => lock.well_id !== row.Well_ID)
+  if (checked) scenario.locked_wells.push({ well_id: row.Well_ID, platform: row.Platform_Assigned, start_date: row.Start_Date })
+}
+function isLocked(name) { return scenario.locked_wells.some(lock => lock.well_id === name) }
 const isOptimizing = computed(() => selected.value?.job.kind === 'optimization' && ['queued', 'running', 'retrying'].includes(selected.value.job.status))
 const previewCaption = computed(() => {
   const progress = selected.value?.progress
@@ -84,8 +111,8 @@ async function load() {
   if (refreshing) return
   refreshing = true
   try {
-    const [w, p, j] = await Promise.all([api('/wells'), api('/platforms'), api('/jobs')])
-    wells.value = w; platforms.value = p; jobs.value = j
+    const [w, p] = await Promise.all([api('/wells'), api('/platforms'), loadHistory()])
+    wells.value = w; platforms.value = p
   } finally { refreshing = false }
 }
 async function selectJob(id) {
@@ -157,6 +184,7 @@ async function importFile(kind, event) {
     const body = new FormData(); body.append('file', file)
     const job = await api('/imports/' + kind, { method: 'POST', body })
     notice.value = 'Import queued. Its progress appears in the results panel.'
+    Object.assign(history, { page: 1, search: '', kind: '', status: '' }); historySearch.value = ''
     await load(); await selectJob(job.id)
   })
   event.target.value = ''
@@ -164,6 +192,7 @@ async function importFile(kind, event) {
 async function optimize() {
   await action(async () => {
     const job = await api('/optimizations', { method: 'POST', body: scenario })
+    Object.assign(history, { page: 1, search: '', kind: '', status: '' }); historySearch.value = ''
     await load(); await selectJob(job.id)
   })
 }
@@ -224,7 +253,7 @@ onBeforeUnmount(() => {
       <div v-if="notice" role="status" aria-live="polite" class="fixed top-5 right-5 z-50 max-w-sm rounded-xl bg-teal-50 border border-teal-300 p-4 text-sm text-teal-900 shadow-lg flex items-start gap-4"><span>{{ notice }}</span><button type="button" aria-label="Dismiss notification" @click="notice = ''">✕</button></div>
       <div class="workspace-grid" data-testid="workspace-grid">
         <aside class="workspace-controls min-w-0 space-y-4" tabindex="0" aria-label="Data and scenario controls">
-          <div class="card p-5"><div class="grid grid-cols-3 gap-3"><div v-for="metric in [{ label: 'Wells', value: wells.length }, { label: 'Rigs', value: platforms.length }, { label: 'Active jobs', value: activeJobs.length }]" :key="metric.label"><p class="text-xs text-slate-500">{{ metric.label }}</p><p class="text-2xl font-semibold mt-1">{{ metric.value }}</p></div></div><button v-if="!wells.length && !platforms.length" class="secondary mt-4 w-full" :disabled="busy" @click="demo">Load demo data</button></div>
+          <div class="card p-5"><div class="grid grid-cols-3 gap-3"><div v-for="metric in [{ label: 'Wells', value: wells.length }, { label: 'Rigs', value: platforms.length }, { label: 'Active jobs', value: activeJobCount }]" :key="metric.label"><p class="text-xs text-slate-500">{{ metric.label }}</p><p class="text-2xl font-semibold mt-1">{{ metric.value }}</p></div></div><button v-if="!wells.length && !platforms.length" class="secondary mt-4 w-full" :disabled="busy" @click="demo">Load demo data</button></div>
           <CollapsiblePanel title="1. Import datasets" default-open>
             <div class="space-y-5"><div v-for="kind in ['wells', 'platforms']" :key="kind" class="space-y-3"><h3 class="font-semibold text-sm">{{ kind === 'wells' ? 'Well dataset' : 'Rig fleet dataset' }}</h3><label class="secondary cursor-pointer w-full">{{ kind === 'wells' ? 'Upload well CSV / Excel' : 'Upload rig CSV / Excel' }}<input class="hidden" type="file" accept=".csv,.xlsx" :disabled="busy" :aria-label="kind === 'wells' ? 'Upload well dataset' : 'Upload rig dataset'" @change="importFile(kind, $event)"></label><button class="text-sm text-teal-700 underline underline-offset-4" @click="template(kind)">{{ kind === 'wells' ? 'Download well template' : 'Download rig template' }}</button></div></div>
           </CollapsiblePanel>
@@ -234,7 +263,14 @@ onBeforeUnmount(() => {
           <CollapsiblePanel title="3. Manage rigs"><form ref="rigForm" class="space-y-4 scroll-mt-48" @submit.prevent="savePlatform"><h2 class="font-semibold">{{ editingPlatform ? 'Edit rig' : 'Add a rig' }}</h2><div class="field-grid"><label>Rig name<input ref="rigNameInput" v-model="platform.name" required maxlength="100"></label><label>Type<input v-model="platform.type"></label><label>Mobilization / demobilization (days)<input v-model.number="platform.mob_demob_days" type="number" min="0" max="365" required></label><label>Daily cost (kUSD)<input v-model.number="platform.daily_cost_kusd" type="number" min="0.001" max="1000000" step="0.001" required></label><label>Contract end (advisory)<input v-model="platform.contract_end_date" type="date"></label><label>Additional categories (semicolon separated)<input v-model="customCategories"></label></div><fieldset><legend class="text-xs font-semibold text-slate-500 mb-3">Supported job categories</legend><div class="grid gap-3"><label v-for="category in [...new Set([...categories, ...platform.categories])]" :key="category" class="flex items-center gap-2 font-normal"><input v-model="platform.categories" type="checkbox" :value="category">{{ category }}</label></div></fieldset><div class="flex gap-3"><button class="btn" :disabled="busy">{{ editingPlatform ? 'Save changes' : 'Save rig' }}</button><button v-if="editingPlatform" type="button" class="secondary" :disabled="busy" @click="cancelRigEdit">Cancel edit</button></div></form>
         <div class="grid gap-5 mt-5"><article v-for="row in platforms" :key="row.id" class="card p-6"><div class="flex justify-between"><h2 class="text-lg font-semibold">{{ row.name }}</h2><span class="text-sm text-slate-500">{{ row.type }}</span></div><p class="mt-4 text-sm">${{ num(row.daily_cost_kusd, 3) }}k / day · {{ row.mob_demob_days }} mobilization days</p><p class="text-xs text-slate-500 mt-2">Contract end: {{ row.contract_end_date || 'Not specified' }}</p><div class="flex flex-wrap gap-2 mt-4"><span v-for="cat in row.categories" :key="cat" class="text-xs px-2 py-1 bg-teal-50 text-teal-800 rounded-md">{{ cat }}</span></div><div class="mt-5 flex gap-4 text-sm"><button type="button" class="text-teal-700" :disabled="busy" @click="editPlatform(row)">Edit rig</button><button class="text-red-600" :disabled="busy" @click="remove('platforms', row)">Delete</button></div></article><div v-if="!platforms.length" class="card p-10 text-slate-500 text-center">No rigs yet. Add one with supported job categories to begin.</div></div>
       </CollapsiblePanel>
-          <CollapsiblePanel title="4. Create a scenario" default-open><form class="space-y-5" @submit.prevent="optimize"><div><p class="text-sm text-slate-500 mt-1">Optimize a 365-day horizon for earlier production and shorter transit. Each run saves a snapshot of your inputs.</p></div><div class="field-grid"><label>Scenario name<input v-model="scenario.name" required maxlength="100"></label><label>Planning start<input v-model="scenario.start_date" type="date" required></label><div class="flex items-end"><button class="btn w-full" :disabled="busy || !wells.length || !platforms.length">Run optimization →</button></div></div><details v-if="wells.length"><summary class="text-sm cursor-pointer text-slate-500">Exclude wells from this scenario ({{ scenario.dropped_wells.length }})</summary><div class="grid sm:grid-cols-2 lg:grid-cols-1 gap-3 mt-4"><label v-for="w in wells" :key="w.id" class="flex gap-2 items-center"><input v-model="scenario.dropped_wells" type="checkbox" :value="w.name">{{ w.name }}</label></div></details></form></CollapsiblePanel>
+          <CollapsiblePanel title="4. Create a scenario" default-open><form class="space-y-5" @submit.prevent="optimize"><div><p class="text-sm text-slate-500 mt-1">Optimize a 365-day horizon for earlier production and shorter transit. Each run saves a snapshot of your inputs.</p></div><div class="field-grid"><label>Scenario name<input v-model="scenario.name" required maxlength="100"></label><label>Planning start<input v-model="scenario.start_date" type="date" required></label><div class="flex items-end"><button class="btn w-full" :disabled="busy || !wells.length || !platforms.length">Run optimization →</button></div></div><details v-if="wells.length"><summary class="text-sm cursor-pointer text-slate-500">Exclude wells from this scenario ({{ scenario.dropped_wells.length }})</summary><div class="grid sm:grid-cols-2 lg:grid-cols-1 gap-3 mt-4"><label v-for="w in wells" :key="w.id" class="flex gap-2 items-center"><input v-model="scenario.dropped_wells" type="checkbox" :value="w.name" :disabled="isLocked(w.name)">{{ w.name }}</label></div></details>
+            <details><summary class="text-sm cursor-pointer text-slate-500">Lock Wells ({{ scenario.locked_wells.length }})</summary>
+              <p class="text-sm text-slate-500 mt-3">View a completed scenario in history, then choose wells to keep on the same rig and start date in your next optimization. Any manual draft dates shown are used. Locked wells cannot be excluded.</p>
+              <p v-if="lockCandidates.length" class="text-sm font-semibold mt-3">From: {{ selected.job.name }}</p>
+              <div class="space-y-3 mt-3 max-h-64 overflow-auto"><label v-for="row in lockCandidates" :key="row.Well_ID" class="flex gap-2 items-start text-sm"><input type="checkbox" :checked="isLocked(row.Well_ID)" @change="toggleLock(row, $event.target.checked)"><span>{{ row.Well_ID }} · {{ row.Platform_Assigned }} · {{ row.Start_Date }}</span></label></div>
+              <p v-if="!lockCandidates.length" class="text-sm text-slate-500 mt-3">View a completed optimization to choose wells.</p>
+              <ul v-if="scenario.locked_wells.length" class="space-y-2 mt-4 text-sm"><li v-for="lock in scenario.locked_wells" :key="lock.well_id" class="flex flex-wrap gap-2 items-center"><span>🔒 {{ lock.well_id }} · {{ lock.platform }} · {{ lock.start_date }}</span><button type="button" class="text-teal-700 underline" :aria-label="'Unlock ' + lock.well_id" @click="scenario.locked_wells = scenario.locked_wells.filter(item => item !== lock)">Unlock</button></li></ul>
+            </details></form></CollapsiblePanel>
         </aside>
         <div ref="resultsPanel" tabindex="-1" class="min-w-0 space-y-5 scroll-mt-48" aria-label="Optimization results" data-testid="results-column">
           <section v-if="selected" :key="selected.job.id" class="space-y-5"><div class="flex flex-wrap gap-3 items-center justify-between"><h2 class="text-xl font-semibold">{{ selected.job.name }}</h2><div v-if="schedule.length" class="flex gap-3"><button class="secondary" @click="exportSchedule">Export schedule</button><button v-if="result?.monte_carlo" class="secondary" @click="exportMC">Export Monte Carlo</button></div></div><p v-if="selected.job.error" role="alert" class="text-red-700 text-sm">{{ selected.job.error }}</p><CollapsiblePanel v-if="selected.job.kind === 'optimization' && (selected.progress?.phase || ['running', 'queued', 'retrying'].includes(selected.job.status))" title="Optimization progress" default-open><OptimizationProgress :progress="selected.progress || {}" :status="selected.job.status" /></CollapsiblePanel><p v-if="selected.job.kind !== 'optimization' && ['running', 'queued', 'retrying'].includes(selected.job.status)" role="status" class="card p-8 text-slate-500">{{ selected.job.status === 'running' ? 'Processing your dataset. Results will appear here.' : 'Waiting for a worker. This page refreshes automatically.' }}</p><p v-if="result && selected.job.kind.startsWith('import:')" class="card p-6">Imported {{ result.imported }} {{ datasetLabel(result.kind) }}. Matching names have been updated.</p><div v-if="result?.rows?.length" class="card p-5 overflow-auto max-h-96"><h3 class="font-semibold mb-3">Imported records</h3><table class="w-full"><thead><tr><th v-for="key in Object.keys(result.rows[0])" :key="key">{{ importColumnLabel(key) }}</th></tr></thead><tbody><tr v-for="(row, index) in result.rows" :key="index"><td v-for="(value, key) in row" :key="key">{{ Array.isArray(value) ? value.join('; ') : value }}</td></tr></tbody></table></div><p v-else-if="selected.job.kind.startsWith('import:') && selected.job.status === 'completed'" class="text-sm text-slate-500">This older import saved a row count only. Imported records are available in Manage wells or Manage rigs; later edits may have changed them.</p>
@@ -255,7 +291,7 @@ onBeforeUnmount(() => {
             </CollapsiblePanel>
           </div>
           <template v-if="schedule.length">
-            <CollapsiblePanel title="Intervention schedule" default-open><div class="overflow-x-auto"><table class="w-full"><thead><tr><th>Well</th><th>Rig</th><th>Start</th><th>End</th><th class="normal-case">Gain(BOPD)</th><th class="normal-case">COST(kUSD)</th></tr></thead><tbody><tr v-for="row in schedule" :key="row.Well_ID"><td class="font-semibold">{{ row.Well_ID }}</td><td>{{ row.Platform_Assigned }}</td><td>{{ row.Start_Date }}</td><td>{{ row.End_Date }}</td><td>{{ num(row.BOPD) }}</td><td>{{ num(row.Cost_kUSD,3) }}</td></tr></tbody></table></div></CollapsiblePanel>
+            <CollapsiblePanel title="Intervention schedule" default-open><div class="overflow-x-auto"><table class="w-full"><thead><tr><th>Well</th><th>Rig</th><th>Start</th><th>End</th><th class="normal-case">Gain(BOPD)</th><th class="normal-case">COST(kUSD)</th></tr></thead><tbody><tr v-for="row in schedule" :key="row.Well_ID"><td class="font-semibold">{{ row.Well_ID }}<span v-if="row.Locked" class="ml-2 text-xs text-teal-700">🔒 Locked</span></td><td>{{ row.Platform_Assigned }}</td><td>{{ row.Start_Date }}</td><td>{{ row.End_Date }}</td><td>{{ num(row.BOPD) }}</td><td>{{ num(row.Cost_kUSD,3) }}</td></tr></tbody></table></div></CollapsiblePanel>
           </template>
 
         </section>
@@ -265,7 +301,18 @@ onBeforeUnmount(() => {
             <CollapsiblePanel title="Intervention timeline" default-open><p class="py-16 text-center text-sm text-slate-500">Run an optimization to view the intervention timeline.</p></CollapsiblePanel>
             <CollapsiblePanel title="Rig routes" default-open><p class="py-16 text-center text-sm text-slate-500">Run an optimization to view the rig routes.</p></CollapsiblePanel>
           </div>
-          <CollapsiblePanel title="Scenario history & imports"><div class="overflow-x-auto"><table class="w-full"><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody><tr v-for="job in jobs" :key="job.id" :class="selected?.job.id === job.id ? 'bg-teal-50/50' : ''"><td class="font-semibold">{{ job.name }}</td><td>{{ jobKindLabel(job.kind) }}</td><td><span class="rounded-full px-2 py-1 text-xs" :class="job.status === 'completed' ? 'bg-teal-100 text-teal-800' : job.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'">{{ job.status }}</span></td><td>{{ new Date(job.created_at).toLocaleString() }}</td><td><button class="text-teal-700" :disabled="viewingJob === job.id" @click="viewJob(job.id)">{{ viewingJob === job.id ? 'Loading…' : 'View' }}</button></td></tr><tr v-if="!jobs.length"><td colspan="5" class="text-center !py-10 text-slate-500">No runs yet. Create your first scenario using the controls on the left.</td></tr></tbody></table></div></CollapsiblePanel>
+          <CollapsiblePanel title="Scenario history & imports">
+            <form class="flex flex-wrap gap-3 items-end mb-4" @submit.prevent="changeHistory(1)">
+              <label class="flex-1 min-w-40">Search by name<input v-model="historySearch" type="search" maxlength="100" placeholder="Scenario or filename"></label><button class="secondary" type="submit">Search</button>
+              <label>Type<select v-model="history.kind" @change="changeHistory(1)"><option value="">All types</option><option value="optimization">Scenarios</option><option value="import:wells">Well imports</option><option value="import:platforms">Rig imports</option></select></label>
+              <label>Status<select v-model="history.status" @change="changeHistory(1)"><option value="">All statuses</option><option v-for="status in ['queued', 'running', 'retrying', 'completed', 'failed']" :key="status" :value="status">{{ status }}</option></select></label>
+              <label>Per page<select v-model.number="history.page_size" @change="changeHistory(1)"><option v-for="size in [10, 25, 50]" :key="size" :value="size">{{ size }}</option></select></label>
+            </form>
+            <div class="overflow-x-auto" :aria-busy="historyLoading"><table class="w-full"><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody><tr v-for="job in jobs" :key="job.id" :class="selected?.job.id === job.id ? 'bg-teal-50/50' : ''"><td class="font-semibold">{{ job.name }}</td><td>{{ jobKindLabel(job.kind) }}</td><td><span class="rounded-full px-2 py-1 text-xs" :class="job.status === 'completed' ? 'bg-teal-100 text-teal-800' : job.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'">{{ job.status }}</span></td><td>{{ new Date(job.created_at).toLocaleString() }}</td><td><button class="text-teal-700" :disabled="viewingJob === job.id" @click="viewJob(job.id)">{{ viewingJob === job.id ? 'Loading…' : 'View' }}</button></td></tr><tr v-if="!jobs.length"><td colspan="5" class="text-center !py-10 text-slate-500">{{ historyLoading ? 'Loading records…' : history.search || history.kind || history.status ? 'No matching records. Adjust your search or filters.' : 'No runs yet. Create your first scenario using the controls on the left.' }}</td></tr></tbody></table></div>
+            <nav aria-label="History pagination" class="flex flex-wrap justify-between items-center gap-3 mt-4 text-sm">
+              <p role="status">{{ historyTotal ? (history.page - 1) * history.page_size + 1 : 0 }}–{{ Math.min(history.page * history.page_size, historyTotal) }} of {{ historyTotal }} records · Page {{ history.page }} of {{ historyPages }}</p>
+              <div class="flex gap-2"><button class="secondary" :disabled="historyLoading || history.page <= 1" @click="changeHistory(1)">First</button><button class="secondary" :disabled="historyLoading || history.page <= 1" @click="changeHistory(history.page - 1)">Previous</button><button class="secondary" :disabled="historyLoading || history.page >= historyPages" @click="changeHistory(history.page + 1)">Next</button><button class="secondary" :disabled="historyLoading || history.page >= historyPages" @click="changeHistory(historyPages)">Last</button></div>
+            </nav></CollapsiblePanel>
         </div>
       </div>
     </main>

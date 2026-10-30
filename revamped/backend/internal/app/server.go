@@ -202,9 +202,10 @@ func (a *App) importFile(c echo.Context) error {
 
 func (a *App) optimize(c echo.Context) error {
 	var in struct {
-		Name         string   `json:"name"`
-		StartDate    string   `json:"start_date"`
-		DroppedWells []string `json:"dropped_wells"`
+		Name         string     `json:"name"`
+		StartDate    string     `json:"start_date"`
+		DroppedWells []string   `json:"dropped_wells"`
+		LockedWells  []WellLock `json:"locked_wells"`
 	}
 	if c.Bind(&in) != nil {
 		return echo.NewHTTPError(400, "Invalid request")
@@ -242,18 +243,88 @@ func (a *App) optimize(c echo.Context) error {
 	for _, p := range platforms {
 		ps[p.Name] = map[string]any{"Supported_Job_Categories": p.Categories, "Mob_Demob_Days": p.MobDemobDays, "Daily_Cost_kUSD": p.DailyCostKUSD, "Contract_End_Date": p.ContractEndDate}
 	}
-	job := Job{ID: newID(), UserID: sharedWorkspaceID, Kind: "optimization", Name: in.Name, Status: "queued", Input: encode(map[string]any{"start_date": in.StartDate, "dropped_wells": in.DroppedWells, "wells": ws, "platforms": ps}), Result: "null"}
+	if err := validateLocks(in.LockedWells, in.DroppedWells, in.StartDate, wells, platforms); err != nil {
+		return echo.NewHTTPError(422, err.Error())
+	}
+	job := Job{ID: newID(), UserID: sharedWorkspaceID, Kind: "optimization", Name: in.Name, Status: "queued", Input: encode(map[string]any{"start_date": in.StartDate, "dropped_wells": in.DroppedWells, "locked_wells": in.LockedWells, "wells": ws, "platforms": ps}), Result: "null"}
 	if err := a.enqueue(&job); err != nil {
 		return echo.NewHTTPError(503, "Could not queue optimization")
 	}
 	return c.JSON(202, job)
 }
 func (a *App) listJobs(c echo.Context) error {
-	rows := []Job{}
-	if err := a.DB.Where("user_id = ?", sharedWorkspaceID).Order("created_at desc").Limit(100).Find(&rows).Error; err != nil {
+	// Preserve the original array response for existing API consumers.
+	if c.QueryParam("page") == "" {
+		rows := []Job{}
+		if err := a.DB.Omit("input", "result", "progress", "object_key").Where("user_id = ?", sharedWorkspaceID).Order("created_at desc, id desc").Limit(100).Find(&rows).Error; err != nil {
+			return err
+		}
+		return c.JSON(200, rows)
+	}
+	options, err := parseHistoryOptions(c)
+	if err != nil {
 		return err
 	}
-	return c.JSON(200, rows)
+	query := a.DB.Model(&Job{}).Where("user_id = ?", sharedWorkspaceID)
+	if options.Search != "" {
+		// Treat wildcard characters as literal text in name searches.
+		pattern := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(options.Search))
+		query = query.Where("LOWER(name) LIKE ? ESCAPE '!'", "%"+pattern+"%")
+	}
+	if options.Kind != "" {
+		query = query.Where("kind = ?", options.Kind)
+	}
+	if options.Status != "" {
+		query = query.Where("status = ?", options.Status)
+	}
+	var total, active int64
+	if err := query.Count(&total).Error; err != nil {
+		return err
+	}
+	if err := a.DB.Model(&Job{}).Where("user_id = ? AND status IN ?", sharedWorkspaceID, []string{"queued", "running", "retrying"}).Count(&active).Error; err != nil {
+		return err
+	}
+	pages := max(1, (int(total)+options.Size-1)/options.Size)
+	page := min(options.Page, pages)
+	rows := []Job{}
+	if err := query.Omit("input", "result", "progress", "object_key").Order("created_at desc, id desc").Offset((page - 1) * options.Size).Limit(options.Size).Find(&rows).Error; err != nil {
+		return err
+	}
+	return c.JSON(200, map[string]any{"items": rows, "total": total, "page": page, "page_size": options.Size, "pages": pages, "active": active})
+}
+
+type historyOptions struct {
+	Page, Size           int
+	Search, Kind, Status string
+}
+
+func parseHistoryOptions(c echo.Context) (historyOptions, error) {
+	options := historyOptions{Page: 1, Size: 10, Search: strings.TrimSpace(c.QueryParam("search")), Kind: c.QueryParam("kind"), Status: c.QueryParam("status")}
+	for _, field := range []struct {
+		name    string
+		value   *int
+		maximum int
+	}{{"page", &options.Page, 100000000}, {"page_size", &options.Size, 100}} {
+		if raw := c.QueryParam(field.name); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 1 || value > field.maximum {
+				return options, echo.NewHTTPError(400, "Invalid "+field.name)
+			}
+			*field.value = value
+		}
+	}
+	if len(options.Search) > 100 {
+		return options, echo.NewHTTPError(400, "Search must be at most 100 characters")
+	}
+	if options.Kind != "" && options.Kind != "optimization" && options.Kind != "import:wells" && options.Kind != "import:platforms" {
+		return options, echo.NewHTTPError(400, "Invalid job type")
+	}
+	switch options.Status {
+	case "", "queued", "running", "retrying", "completed", "failed":
+	default:
+		return options, echo.NewHTTPError(400, "Invalid job status")
+	}
+	return options, nil
 }
 func (a *App) getJob(c echo.Context) error {
 	var job Job

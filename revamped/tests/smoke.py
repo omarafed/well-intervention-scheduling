@@ -78,6 +78,23 @@ def main():
             assert row['Start_Day'] >= previous_end
             previous_end = row['End_Day']
         assert len(result['monte_carlo']['gain_bopd']) == 10000
+        pinned = result['schedule'][0]
+        lock = {'well_id': pinned['Well_ID'], 'platform': pinned['Platform_Assigned'], 'start_date': pinned['Start_Date']}
+        locked_job = request('/optimizations', 'POST', {
+            'name': prefix + ' scenario locked', 'start_date': '2026-10-09',
+            'dropped_wells': [w['name'] for w in baseline], 'locked_wells': [lock]})
+        locked_result = wait(locked_job)
+        locked_row = next(r for r in locked_result['schedule'] if r['Well_ID'] == lock['well_id'])
+        assert locked_row['Locked'] and locked_row['Platform_Assigned'] == lock['platform'] and locked_row['Start_Date'] == lock['start_date']
+        assert request('/jobs/' + locked_job['id'])['input']['locked_wells'] == [lock]
+        history_query = '/jobs?page_size=1&kind=optimization&status=completed&search=' + prefix
+        first = request(history_query + '&page=1')
+        second = request(history_query + '&page=2')
+        assert first['total'] == second['total'] == 2 and first['pages'] == 2
+        assert first['items'][0]['id'] != second['items'][0]['id']
+        assert {first['items'][0]['id'], second['items'][0]['id']} == {job['id'], locked_job['id']}
+        assert request(history_query + '&page=999')['page'] == 2
+        assert request('/jobs?page=1&search=' + prefix + '-missing')['total'] == 0
         imported = wait(upload('wells', (f'Well_ID,Job Category,Duration_Days,Gain_BOPD,Lat,Lon\n{wells[0]["name"]},{category},8,550,4.1,112.2\n').encode()))
         assert imported['imported'] == 1
         assert imported['rows'][0]['name'] == wells[0]['name']
@@ -101,7 +118,7 @@ def main():
         assert saved['progress']['elapsed_seconds'] >= 0
         original = next(w for w in saved['input']['wells'] if w['Well_ID'] == wells[0]['name'])
         assert original['Duration_Days'] == 5
-        print('PASS: direct access, shared datasets, CRUD, saved snapshots, optimization, Monte Carlo, staged imports, and import rollback')
+        print('PASS: direct access, shared datasets, CRUD, saved snapshots, optimization, locked wells, paginated history, Monte Carlo, staged imports, and import rollback')
     finally:
         for kind, identifier in reversed(created):
             request(f'/{kind}/{identifier}', 'DELETE')

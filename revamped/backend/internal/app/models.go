@@ -81,3 +81,54 @@ func encode(v any) string {
 	}
 	return string(b)
 }
+
+// WellLock pins a well to a rig and an absolute calendar date in a scenario snapshot.
+type WellLock struct {
+	WellID    string `json:"well_id"`
+	Platform  string `json:"platform"`
+	StartDate string `json:"start_date"`
+}
+
+func validateLocks(locks []WellLock, dropped []string, startDate string, wells []Well, platforms []Platform) error {
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return errors.New("choose a valid planning start date")
+	}
+	ws := map[string]Well{}
+	ps := map[string]Platform{}
+	excluded, seen := map[string]bool{}, map[string]bool{}
+	for _, w := range wells {
+		ws[w.Name] = w
+	}
+	for _, p := range platforms {
+		ps[p.Name] = p
+	}
+	for _, name := range dropped {
+		excluded[name] = true
+	}
+	for _, lock := range locks {
+		w, exists := ws[lock.WellID]
+		if !exists || seen[lock.WellID] {
+			return errors.New("locked wells must exist and be unique")
+		}
+		seen[lock.WellID] = true
+		if excluded[lock.WellID] {
+			return errors.New("a locked well cannot also be excluded")
+		}
+		p, exists := ps[lock.Platform]
+		supported := false
+		for _, category := range p.Categories {
+			if category == w.Category {
+				supported = true
+			}
+		}
+		if !exists || !supported {
+			return errors.New("locked rig must exist and support the well category")
+		}
+		date, err := time.Parse("2006-01-02", lock.StartDate)
+		if err != nil || date.Before(start) || date.AddDate(0, 0, w.DurationDays+p.MobDemobDays).After(start.AddDate(0, 0, 365)) {
+			return errors.New("locked intervention must fit within the 365-day planning horizon")
+		}
+	}
+	return nil
+}

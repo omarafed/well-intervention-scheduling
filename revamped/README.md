@@ -55,9 +55,11 @@ Redis durably queues jobs using AOF. Completed job responses are cached briefly 
 - Risk uses triangular duration factors 0.8 / 1.0 / 1.5 and gain factors 0.7 / 1.0 / 1.2. Gain P90 is the lower percentile; cost P90 is the upper percentile. Simulation is vectorized with a fixed seed, so exact random samples differ from the notebook while retaining its distributions.
 - Limits: 200 wells / 20 rigs per optimization; 1,000 rows / 10 MiB per import. Larger workloads need profiling and resource limits.
 
-The application supports dataset editing, excluded wells and saved scenario history. On completed scenarios, drag a well onto the left or right half of another well on the same rig to reorder it; keyboard users can focus a well and press the left/right arrow keys. Dates and transit are recalculated using the same duration, mobilization and transit rules as the optimizer. Moves beyond the 365-day horizon are rejected, and contract overruns remain advisory warnings. Manual drafts are saved per scenario in this browser and included in schedule exports; Reset restores the original result. Rig assignments, gain, cost and risk distributions stay unchanged. Job categories keep the same colors after reordering or restoring drafts; timeline well names and BOPD values are bold. Hovering or focusing a well shows its category, dates, gain, cost and contract end. Locked interventions, collaborative approval flows, and scenario comparison overlays are not implemented. The notebook accepted locked-well inputs but did not apply them in its optimization model, so the new app does not expose an ineffective lock control.
+The application supports dataset editing, excluded wells and saved scenario history. On completed scenarios, drag a well onto the left or right half of another well on the same rig to reorder it; keyboard users can focus a well and press the left/right arrow keys. Dates and transit are recalculated using the same duration, mobilization and transit rules as the optimizer. Moves beyond the 365-day horizon are rejected, and contract overruns remain advisory warnings. Manual drafts are saved per scenario in this browser and included in schedule exports; Reset restores the original result. Rig assignments, gain, cost and risk distributions stay unchanged. Job categories keep the same colors after reordering or restoring drafts; timeline well names and BOPD values are bold. Hovering or focusing a well shows its category, dates, gain, cost and contract end. To reuse part of a completed schedule, view it in history, open **Create a scenario → Lock Wells**, and select wells. Each lock copies the displayed rig assignment and absolute start date, including manual draft dates, into the next scenario’s immutable input snapshot. The optimizer enforces these constraints in live previews and final results while retaining compatibility and transit constraints. Locks persist in the scenario form when viewing other results; use **Unlock** to remove them. Locked wells cannot be excluded. Changed datasets or planning dates must still leave locked interventions within the 365-day horizon; conflicting locks fail with an explanation. Locked rows are marked in the schedule, timeline, tooltip, and export. Manual reordering preserves their dates and rejects moves that would violate transit time or overlap them. The notebook’s previous lock input was unused; enforcement now lives in the application optimizer. Collaborative approval flows and scenario comparison overlays are not implemented.
 
 Selecting **Edit rig** loads the selected rig into the form, scrolls to it, and focuses its name. **Save changes** updates that rig; **Cancel edit** resets the form.
+
+History uses server-side pagination with 10, 25, or 50 records per page, name search, and type/status filters. First/previous/next/last controls reach older records beyond the former 100-record limit; automatic refresh preserves the current page and filters. Active-job totals cover the entire workspace regardless of history filters. New runs and imports reset history to its first unfiltered page.
 
 Selecting **View** in history loads the selected result, opens its result panels, and moves focus to it. New imports save a snapshot of parsed rows for viewing; older imports retain their counts only. Saved scenario inputs remain stored but are hidden from the interface. Job categories use a native dropdown that includes imported/custom rig categories, and successful well or rig saves show a dismissible notification.
 
@@ -70,8 +72,8 @@ All application API routes are accessible directly without an Authorization head
 | GET / POST | `/api/wells`, `/api/platforms` | List / create records |
 | PUT / DELETE | `/api/wells/:id`, `/api/platforms/:id` | Update / delete record |
 | POST | `/api/imports/wells`, `/api/imports/platforms` | Multipart `file`; returns import job |
-| POST | `/api/optimizations` | `{name, start_date, dropped_wells: []}`; returns scenario job |
-| GET | `/api/jobs` | Latest 100 workspace jobs |
+| POST | `/api/optimizations` | `{name, start_date, dropped_wells: [], locked_wells: [{well_id, platform, start_date}]}`; returns scenario job |
+| GET | `/api/jobs?page=1&page_size=10` | Paginated metadata: `{items, total, page, page_size, pages, active}`; optional `search`, `kind`, `status`. Page size 1–100; without `page`, legacy latest-100 array |
 | GET | `/api/jobs/:id` | Job, saved inputs, progress, and provisional or final result |
 | POST | `/api/demo` | Populate an empty workspace with sample data |
 
@@ -100,7 +102,7 @@ After Compose is running, run the end-to-end smoke test from this folder:
 python3 tests/smoke.py
 ```
 
-It verifies direct access without credentials, creates uniquely named test wells and a rig, runs optimization, validates saved snapshots and risk results, and exercises staged CSV imports. It removes its test records afterward while preserving existing datasets. Saved test jobs remain visible in history.
+It verifies direct access without credentials, creates uniquely named test wells and a rig, runs optimization and a second scenario with a locked well, validates saved snapshots and risk results, checks paginated and filtered history, and exercises staged CSV imports. It removes its test records afterward while preserving existing datasets. Saved test jobs remain visible in history.
 
 For frontend development, run `npm run dev` in `frontend/` while the API is running. The frontend's public API base is configured with `NUXT_PUBLIC_API_BASE`.
 

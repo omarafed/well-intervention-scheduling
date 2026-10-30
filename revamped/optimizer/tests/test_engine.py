@@ -43,6 +43,38 @@ class EngineTests(unittest.TestCase):
         data = fixture(); data['dropped_wells'] = ['W1', 'W2']
         with self.assertRaisesRegex(ValueError, 'At least one'): optimize(data)
 
+    def test_locks_pin_rig_and_calendar_date_in_previews_and_result(self):
+        data = fixture()
+        data['platforms']['Rig-2'] = {**data['platforms']['Platform-1']}
+        data['locked_wells'] = [{'well_id': 'W1', 'platform': 'Rig-2', 'start_date': '2026-11-07'}]
+        previews = []
+        result = optimize(data, lambda update: previews.append(update['preview']) if 'preview' in update else None)
+        self.assertTrue(previews)
+        for snapshot in previews + [result]:
+            row = next(r for r in snapshot['schedule'] if r['Well_ID'] == 'W1')
+            self.assertEqual((row['Platform_Assigned'], row['Start_Date'], row['Start_Day'], row['Locked']), ('Rig-2', '2026-11-07', 30, True))
+        data['start_date'] = '2026-10-09'
+        row = next(r for r in optimize(data)['schedule'] if r['Well_ID'] == 'W1')
+        self.assertEqual((row['Start_Date'], row['Start_Day']), ('2026-11-07', 29))
+
+    def test_invalid_and_conflicting_locks(self):
+        lock = {'well_id': 'W1', 'platform': 'Platform-1', 'start_date': '2026-10-08'}
+        for change in [{'well_id': 'missing'}, {'platform': 'missing'}, {'start_date': 'bad'}, {'start_date': '2026-10-07'}, {'start_date': '2027-10-07'}]:
+            data = fixture(); data['locked_wells'] = [{**lock, **change}]
+            with self.subTest(change=change), self.assertRaises(ValueError): optimize(data)
+        data = fixture(); data['platforms']['Other'] = {**data['platforms']['Platform-1'], 'Supported_Job_Categories': ['Other']}
+        data['locked_wells'] = [{**lock, 'platform': 'Other'}]
+        with self.assertRaisesRegex(ValueError, 'support'): optimize(data)
+        data = fixture(); data['locked_wells'] = [lock, lock]
+        with self.assertRaisesRegex(ValueError, 'unique'): optimize(data)
+        data = fixture(); data['locked_wells'] = [lock]; data['dropped_wells'] = ['W1']
+        with self.assertRaisesRegex(ValueError, 'excluded'): optimize(data)
+        data = fixture(); data['locked_wells'] = [lock, {**lock, 'well_id': 'W2', 'start_date': '2026-10-15'}]
+        # W1 ends on day 7; W2 starts on day 7, leaving no transit time.
+        with self.assertRaisesRegex(ValueError, 'No feasible schedule.*locked'): optimize(data)
+        data['locked_wells'][1]['start_date'] = '2026-10-17'
+        self.assertEqual(len(optimize(data)['schedule']), 2)
+
     def test_csv_and_excel_imports(self):
         body = b'Well_ID,Job Category,Duration_Days,Gain_BOPD,Lat,Lon\nW1,Logging,5,500,4.1,112.2\n'
         rows = parse_file('wells', 'wells.csv', body)

@@ -11,6 +11,7 @@ export function reorderSchedule(schedule, source, target, startDate, after = fal
   const to = schedule.find(r => r.Well_ID === target)
   if (!from || !to || from.Platform_Assigned !== to.Platform_Assigned) throw new Error('Move wells within the same rig.')
   if (source === target) return schedule
+  if (from.Locked) throw new Error('Locked wells must keep their rig and start date.')
   const rows = schedule.filter(r => r.Platform_Assigned === from.Platform_Assigned).sort((a, b) => a.Start_Day - b.Start_Day).map(r => ({ ...r }))
   const moving = rows.splice(rows.findIndex(r => r.Well_ID === source), 1)[0]
   rows.splice(rows.findIndex(r => r.Well_ID === target) + (after ? 1 : 0), 0, moving)
@@ -22,7 +23,9 @@ function recalculate(rows, startDate) {
   let previous
   for (const row of rows) {
     const transit = previous ? distance(previous, row) : 0
-    row.Start_Day = previous ? previous.End_Day + Math.ceil(transit / 50) + 1 : 0
+    const earliest = previous ? previous.End_Day + Math.ceil(transit / 50) + 1 : 0
+    if (row.Locked && earliest > row.Start_Day) throw new Error('This order conflicts with a locked well or its transit time.')
+    row.Start_Day = row.Locked ? row.Start_Day : earliest
     row.End_Day = row.Start_Day + row.Duration_Days + row.Mob_Demob_Days
     if (row.End_Day > 365) throw new Error('This order exceeds the 365-day planning horizon. Try another position.')
     row.Start_Date = new Date(Date.parse(startDate) + row.Start_Day * day).toISOString().slice(0, 10)

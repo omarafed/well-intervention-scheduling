@@ -137,6 +137,26 @@ def _optimize(data, on_progress=None, stop_event=None):
     for _, row in df_candidates.iterrows():
         if row["Well_ID"] not in dropped_wells and not any(row["Job Category"] in p["Supported_Job_Categories"] for p in fleet_specs.values()):
             raise ValueError(f"No rig supports {row['Well_ID']}.")
+    locks = {}
+    for lock in data.get("locked_wells") or []:
+        if not isinstance(lock, dict):
+            raise ValueError("Each locked well must specify a well, rig and start date.")
+        well_id, platform = lock.get("well_id"), lock.get("platform")
+        if well_id not in set(df_candidates["Well_ID"]) or well_id in locks:
+            raise ValueError("Locked wells must exist and be unique.")
+        if well_id in dropped_wells:
+            raise ValueError("A locked well cannot also be excluded.")
+        row = df_candidates[df_candidates["Well_ID"] == well_id].iloc[0]
+        if platform not in fleet_specs or row["Job Category"] not in fleet_specs[platform]["Supported_Job_Categories"]:
+            raise ValueError("Locked rig must exist and support the well category.")
+        try:
+            date = datetime.strptime(lock["start_date"], "%Y-%m-%d")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Locked start date must be YYYY-MM-DD.") from exc
+        offset = (date - base_date).days
+        if offset < 0 or offset + int(row["Duration_Days"]) + fleet_specs[platform]["Mob_Demob_Days"] > 365:
+            raise ValueError("Locked intervention must fit within the 365-day planning horizon.")
+        locks[well_id] = (platform, offset)
     active = df_candidates[~df_candidates['Well_ID'].isin(dropped_wells)]
     route_pairs = 0
     for platform in fleet_specs.values():
@@ -179,6 +199,10 @@ def _optimize(data, on_progress=None, stop_event=None):
             continue
 
         model.Add(performed[i] == 1)
+        if well_id in locks:
+            platform, offset = locks[well_id]
+            model.Add(assigned_platform[i] == platform_names.index(platform))
+            model.Add(starts[i] == offset)
         model.Add(starts[i] >= 0).OnlyEnforceIf(performed[i])
 
         platform_actives = []
@@ -206,7 +230,7 @@ def _optimize(data, on_progress=None, stop_event=None):
         model.Add(actual_end == 0).OnlyEnforceIf(performed[i].Not())
         actual_ends.append(actual_end)
 
-    # --- UNLOCKED ROUTING ---
+    # --- ROUTING (INCLUDING LOCKED INTERVENTIONS) ---
     eligible_indices = [
         i for i in range(n_wells)
         if df_candidates.loc[i, "Well_ID"] not in dropped_wells
@@ -302,6 +326,7 @@ def _optimize(data, on_progress=None, stop_event=None):
                 "Platform_Assigned": platform_n,
                 "Job Category": df_candidates.loc[i, "Job Category"],
                 "Start_Day": start_val, "End_Day": end_val,
+                "Locked": df_candidates.loc[i, "Well_ID"] in locks,
                 "Start_Date": (base_date + timedelta(days=start_val)).strftime("%Y-%m-%d"),
                 "End_Date": (base_date + timedelta(days=end_val)).strftime("%Y-%m-%d"),
                 "Duration_Days": duration,
@@ -359,7 +384,7 @@ def _optimize(data, on_progress=None, stop_event=None):
         if watcher:
             watcher.join()
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        raise ValueError(f"No feasible schedule found: {solver.StatusName(status)}")
+        raise ValueError(f"No feasible schedule found: {solver.StatusName(status)}" + (". Check locked dates, rig assignments and transit time." if locks else ""))
     on_progress({"phase": "finalizing", "objective": solver.ObjectiveValue(), "best_bound": solver.BestObjectiveBound()})
     result = summarize(extract_schedule(solver), fleet_specs, solver.StatusName(status), base_date)
     result["objective"] = solver.ObjectiveValue()

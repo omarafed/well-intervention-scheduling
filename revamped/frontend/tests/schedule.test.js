@@ -34,3 +34,18 @@ test('invalid moves and stale drafts are rejected without mutating the source', 
   assert.throws(() => reorderSchedule(long, 'C', 'A', '2026-10-28'), /365-day/)
   assert.equal(JSON.stringify(long), saved)
 })
+
+
+test('manual moves preserve locked anchors and reject conflicts without changing results', () => {
+  const rows = [row('A', 'P1', 0), { ...row('B', 'P1', 20), Locked: true }, row('C', 'P1', 28)]
+  const saved = JSON.stringify(rows)
+  assert.throws(() => reorderSchedule(rows, 'B', 'A', '2026-10-28'), /Locked wells/)
+  const reordered = reorderSchedule(rows, 'C', 'A', '2026-10-28')
+  assert.equal(reordered.find(r => r.Well_ID === 'B').Start_Day, 20)
+  assert.equal(reordered.find(r => r.Well_ID === 'B').Start_Date, '2026-11-17')
+  const restored = restoreOrder(rows, ['C', 'A', 'B'], '2026-10-28')
+  assert.deepEqual(restored, reordered)
+  const tight = rows.map(r => r.Well_ID === 'B' ? { ...r, Start_Day: 10, End_Day: 17 } : r)
+  assert.throws(() => reorderSchedule(tight, 'C', 'A', '2026-10-28'), /conflicts with a locked/)
+  assert.equal(JSON.stringify(rows), saved)
+})
